@@ -1,0 +1,15 @@
+# Local symlink to the Engineering Codex (per-machine, not portable)
+Engineering_Codex
+
+.DS_Store
+
+CLAUDE.md
+design/
+
+# Rust build artifacts
+/target
+**/*.rs.bk
+
+# Cargo lockfile (uncomment if this becomes a library workspace; for now
+# we keep Cargo.lock so binary-style reproducible builds work)
+# Cargo.lock

@@ -1,0 +1,19 @@
+[package]
+name = "bellwether-core"
+description = "Discrete-event simulation core for Ethernet-like signal propagation and CSMA/CD on graphs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# Pure core. No runtime dependencies.
+
+[dev-dependencies]
+# Test-only dependencies will be added as the test surface grows.
