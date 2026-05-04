@@ -38,7 +38,7 @@ use crate::time::{BitRate, BitTime, Bits};
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::policy::BackoffPolicy;
+/// use aether_sonde::policy::BackoffPolicy;
 ///
 /// let p = BackoffPolicy::IEEE_802_3;
 /// // After 1 collision, the window is 2 slots.
@@ -72,7 +72,7 @@ impl BackoffPolicy {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::policy::BackoffPolicy;
+    /// use aether_sonde::policy::BackoffPolicy;
     /// let p = BackoffPolicy::new(8, 5).unwrap();
     /// assert_eq!(p.attempt_limit(), 8);
     /// assert_eq!(p.backoff_limit(), 5);
@@ -117,7 +117,7 @@ impl BackoffPolicy {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::policy::BackoffPolicy;
+    /// use aether_sonde::policy::BackoffPolicy;
     /// let p = BackoffPolicy::IEEE_802_3;
     /// assert_eq!(p.window_size(1), Some(2));
     /// assert_eq!(p.window_size(10), Some(1024));
@@ -147,7 +147,7 @@ impl BackoffPolicy {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::policy::BackoffPolicy;
+    /// use aether_sonde::policy::BackoffPolicy;
     /// let p = BackoffPolicy::IEEE_802_3;
     /// assert_eq!(p.slot_count(1, 0), Ok(0));
     /// assert_eq!(p.slot_count(1, 5), Ok(1));   // 5 % 2 = 1
@@ -183,8 +183,8 @@ impl BackoffPolicy {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::policy::BackoffPolicy;
-    /// use bellwether_core::time::BitTime;
+    /// use aether_sonde::policy::BackoffPolicy;
+    /// use aether_sonde::time::BitTime;
     ///
     /// let p = BackoffPolicy::IEEE_802_3;
     /// // n=1, slot_time=51.2 µs, random=1 → 1 slot → 51_200 ns.
@@ -292,8 +292,8 @@ impl core::error::Error for BackoffAborted {}
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::policy::JamPolicy;
-/// use bellwether_core::time::{BitRate, BitTime};
+/// use aether_sonde::policy::JamPolicy;
+/// use aether_sonde::time::{BitRate, BitTime};
 ///
 /// // 32 bits at 10 Mbps = 3.2 µs.
 /// assert_eq!(
@@ -323,8 +323,8 @@ impl JamPolicy {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::policy::JamPolicy;
-    /// use bellwether_core::time::Bits;
+    /// use aether_sonde::policy::JamPolicy;
+    /// use aether_sonde::time::Bits;
     /// assert!(JamPolicy::new(Bits::new(48)).is_ok());
     /// assert!(JamPolicy::new(Bits::ZERO).is_err());
     /// ```
@@ -351,8 +351,8 @@ impl JamPolicy {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::policy::JamPolicy;
-    /// use bellwether_core::time::{BitRate, BitTime};
+    /// use aether_sonde::policy::JamPolicy;
+    /// use aether_sonde::time::{BitRate, BitTime};
     /// assert_eq!(
     ///     JamPolicy::IEEE_802_3.duration_at(BitRate::ETHERNET_1G),
     ///     BitTime::from_nanos(32),
@@ -396,8 +396,8 @@ impl core::error::Error for JamPolicyError {}
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::policy::IfgPolicy;
-/// use bellwether_core::time::{BitRate, BitTime};
+/// use aether_sonde::policy::IfgPolicy;
+/// use aether_sonde::time::{BitRate, BitTime};
 ///
 /// // 96 bits at 1 Gbps = 96 ns.
 /// assert_eq!(
@@ -424,8 +424,8 @@ impl IfgPolicy {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::policy::IfgPolicy;
-    /// use bellwether_core::time::{BitRate, BitTime, Bits};
+    /// use aether_sonde::policy::IfgPolicy;
+    /// use aether_sonde::time::{BitRate, BitTime, Bits};
     ///
     /// let strict = IfgPolicy::new(Bits::new(128));
     /// assert_eq!(strict.bits(), Bits::new(128));

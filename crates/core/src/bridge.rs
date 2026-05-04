@@ -46,8 +46,8 @@ use std::collections::VecDeque;
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::bridge::frame_eligibility_time;
-/// use bellwether_core::time::{BitRate, BitTime, Bits};
+/// use aether_sonde::bridge::frame_eligibility_time;
+/// use aether_sonde::time::{BitRate, BitTime, Bits};
 ///
 /// // Cut-through: 64 bits at 1 Gbps = 64 ns; +500 ns processing = 564 ns.
 /// assert_eq!(
@@ -96,7 +96,7 @@ pub fn frame_eligibility_time(
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::bridge::EgressQueue;
+/// use aether_sonde::bridge::EgressQueue;
 ///
 /// let mut q = EgressQueue::<&'static str>::new();
 /// q.enqueue("a").unwrap();
@@ -138,7 +138,7 @@ impl<T> EgressQueue<T> {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::bridge::EgressQueue;
+    /// use aether_sonde::bridge::EgressQueue;
     ///
     /// let mut q = EgressQueue::<i32>::with_capacity(2);
     /// assert_eq!(q.capacity(), Some(2));
@@ -252,8 +252,8 @@ pub trait Forwarding<F> {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::bridge::{FloodForwarding, Forwarding};
-/// use bellwether_core::topology::PortId;
+/// use aether_sonde::bridge::{FloodForwarding, Forwarding};
+/// use aether_sonde::topology::PortId;
 ///
 /// let policy = FloodForwarding;
 /// let all = [PortId::new(0), PortId::new(1), PortId::new(2), PortId::new(3)];

@@ -1,5 +1,5 @@
 [package]
-name = "bellwether-core"
+name = "aether-sonde"
 description = "Discrete-event simulation core for Ethernet-like signal propagation and CSMA/CD on graphs."
 version.workspace = true
 edition.workspace = true

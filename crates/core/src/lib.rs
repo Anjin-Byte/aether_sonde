@@ -1,4 +1,4 @@
-//! Bellwether simulation core.
+//! Aether Sonde simulation core.
 //!
 //! Discrete-event simulator for finite-length signal propagation and CSMA/CD
 //! on graphs, generalized to mixed half-duplex shared media, full-duplex
@@ -34,12 +34,13 @@
 //!   append-only `Log`.
 //! - [`engine`] — discrete-event scheduler. Round 8a: ordinary HD
 //!   propagation path; collisions, FD, bridge land in 8b–8d.
-//!
-//! Subsequent modules (`observe`) are added in later commits.
+//! - [`observe`] — endpoint observable queries: `carrier_sense`,
+//!   `collision_detect`, `first_collision_detect_at`, `receive_complete`.
 
 pub mod bridge;
 pub mod engine;
 pub mod event;
+pub mod observe;
 pub mod policy;
 pub mod resource;
 pub mod signal;

@@ -53,7 +53,7 @@ use std::collections::{BinaryHeap, HashMap, VecDeque};
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::engine::MacConfig;
+/// use aether_sonde::engine::MacConfig;
 /// let m = MacConfig::IEEE_802_3;
 /// assert_eq!(m.backoff.attempt_limit(), 16);
 /// ```
@@ -316,8 +316,8 @@ impl Engine {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::engine::Engine;
-    /// use bellwether_core::topology::TopologyBuilder;
+    /// use aether_sonde::engine::Engine;
+    /// use aether_sonde::topology::TopologyBuilder;
     ///
     /// let world = TopologyBuilder::new().build().unwrap();
     /// let engine = Engine::new(world);
@@ -337,8 +337,8 @@ impl Engine {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::engine::Engine;
-    /// use bellwether_core::topology::TopologyBuilder;
+    /// use aether_sonde::engine::Engine;
+    /// use aether_sonde::topology::TopologyBuilder;
     ///
     /// let world = TopologyBuilder::new().build().unwrap();
     /// let engine = Engine::with_seed(world, 42);

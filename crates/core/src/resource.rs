@@ -69,7 +69,7 @@ pub trait ResourceId: sealed::Sealed + Copy + Eq + core::fmt::Debug {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::resource::CollisionId;
+/// use aether_sonde::resource::CollisionId;
 /// assert_eq!(CollisionId::new(3).as_u32(), 3);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -110,7 +110,7 @@ impl ResourceId for CollisionId {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::resource::SerializerId;
+/// use aether_sonde::resource::SerializerId;
 /// assert_eq!(SerializerId::new(7).as_u32(), 7);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -178,8 +178,8 @@ impl core::error::Error for ClaimError {}
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::resource::{Claim, SerializerId};
-/// use bellwether_core::time::BitTime;
+/// use aether_sonde::resource::{Claim, SerializerId};
+/// use aether_sonde::time::BitTime;
 ///
 /// let claim = Claim::new(
 ///     SerializerId::new(0),
@@ -259,8 +259,8 @@ impl<R: ResourceId> Claim<R> {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::resource::{Claim, SerializerId};
-    /// use bellwether_core::time::BitTime;
+    /// use aether_sonde::resource::{Claim, SerializerId};
+    /// use aether_sonde::time::BitTime;
     ///
     /// let r = SerializerId::new(0);
     /// let a = Claim::new(r, BitTime::new(100), BitTime::new(200)).unwrap();
@@ -342,9 +342,9 @@ impl core::error::Error for TransmissionError {}
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::resource::{Claim, SerializerId, Transmission};
-/// use bellwether_core::signal::{NodeId, Signal};
-/// use bellwether_core::time::{BitRate, BitTime, Bits};
+/// use aether_sonde::resource::{Claim, SerializerId, Transmission};
+/// use aether_sonde::signal::{NodeId, Signal};
+/// use aether_sonde::time::{BitRate, BitTime, Bits};
 ///
 /// let signal = Signal::frame(
 ///     NodeId::new(0),

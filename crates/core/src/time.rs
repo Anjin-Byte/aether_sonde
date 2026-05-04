@@ -74,7 +74,7 @@ const fn nz(n: u64) -> NonZeroU64 {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::time::BitTime;
+/// use aether_sonde::time::BitTime;
 ///
 /// assert_eq!(BitTime::from_nanos(1).as_u64(), 1_000);
 /// assert_eq!(BitTime::from_micros(1).as_u64(), 1_000_000);
@@ -92,7 +92,7 @@ impl BitTime {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::BitTime;
+    /// use aether_sonde::time::BitTime;
     /// assert_eq!(BitTime::new(500).as_u64(), 500);
     /// ```
     #[must_use]
@@ -110,7 +110,7 @@ impl BitTime {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::BitTime;
+    /// use aether_sonde::time::BitTime;
     /// assert_eq!(BitTime::from_nanos(100), BitTime::new(100_000));
     /// ```
     //
@@ -136,7 +136,7 @@ impl BitTime {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::BitTime;
+    /// use aether_sonde::time::BitTime;
     /// assert_eq!(BitTime::from_micros(1).as_u64(), 1_000_000);
     /// ```
     #[allow(clippy::panic)]
@@ -158,7 +158,7 @@ impl BitTime {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::BitTime;
+    /// use aether_sonde::time::BitTime;
     /// assert_eq!(BitTime::from_millis(1).as_u64(), 1_000_000_000);
     /// ```
     #[allow(clippy::panic)]
@@ -252,7 +252,7 @@ impl SubAssign for BitTime {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::time::{BitRate, BitTime, Bits};
+/// use aether_sonde::time::{BitRate, BitTime, Bits};
 ///
 /// // At 10 Mbps, 1 bit takes 100 ns.
 /// assert_eq!(Bits::new(1).at_rate(BitRate::ETHERNET_10M), BitTime::from_nanos(100));
@@ -271,7 +271,7 @@ impl Bits {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::Bits;
+    /// use aether_sonde::time::Bits;
     /// assert_eq!(Bits::new(512).as_u64(), 512);
     /// ```
     #[must_use]
@@ -300,7 +300,7 @@ impl Bits {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::{BitRate, BitTime, Bits};
+    /// use aether_sonde::time::{BitRate, BitTime, Bits};
     ///
     /// // 512-bit minimum frame at 10 Mbps takes 51.2 µs.
     /// assert_eq!(
@@ -386,7 +386,7 @@ impl SubAssign for Bits {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::time::BitRate;
+/// use aether_sonde::time::BitRate;
 ///
 /// assert_eq!(BitRate::ETHERNET_10M.as_bps(), 10_000_000);
 /// assert_eq!(BitRate::ETHERNET_100M.as_bps(), 100_000_000);
@@ -411,7 +411,7 @@ impl BitRate {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::BitRate;
+    /// use aether_sonde::time::BitRate;
     /// use core::num::NonZeroU64;
     ///
     /// let rate = BitRate::new(NonZeroU64::new(2_500_000_000).unwrap());
@@ -427,7 +427,7 @@ impl BitRate {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::time::BitRate;
+    /// use aether_sonde::time::BitRate;
     ///
     /// assert!(BitRate::from_bps(0).is_none());
     /// assert_eq!(BitRate::from_bps(1).map(BitRate::as_bps), Some(1));

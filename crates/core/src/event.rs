@@ -37,7 +37,7 @@ use crate::topology::PortId;
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::event::FrameId;
+/// use aether_sonde::event::FrameId;
 /// assert_eq!(FrameId::new(7).as_u32(), 7);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -82,7 +82,7 @@ impl FrameId {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::event::Phase;
+/// use aether_sonde::event::Phase;
 /// assert!(Phase::Release < Phase::Assertion);
 /// assert!(Phase::Assertion < Phase::Reaction);
 /// assert!(Phase::Reaction < Phase::LocalDecision);
@@ -116,8 +116,8 @@ pub enum Phase {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::event::{Event, FrameId, Phase};
-/// use bellwether_core::signal::NodeId;
+/// use aether_sonde::event::{Event, FrameId, Phase};
+/// use aether_sonde::signal::NodeId;
 ///
 /// let attempt = Event::TxAttempt {
 ///     node: NodeId::new(0),
@@ -227,8 +227,8 @@ impl Event {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::event::{Event, FrameId, Phase};
-    /// use bellwether_core::signal::NodeId;
+    /// use aether_sonde::event::{Event, FrameId, Phase};
+    /// use aether_sonde::signal::NodeId;
     ///
     /// let jam_end = Event::JamEnd { node: NodeId::new(0) };
     /// assert_eq!(jam_end.phase(), Phase::Release);
@@ -268,8 +268,8 @@ impl Event {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::event::{EventKey, Phase};
-/// use bellwether_core::time::BitTime;
+/// use aether_sonde::event::{EventKey, Phase};
+/// use aether_sonde::time::BitTime;
 ///
 /// let early = EventKey { time: BitTime::new(100), phase: Phase::Release, serial_id: 0 };
 /// let late = EventKey { time: BitTime::new(200), phase: Phase::Release, serial_id: 0 };
@@ -308,7 +308,7 @@ pub struct LoggedEvent {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::event::Log;
+/// use aether_sonde::event::Log;
 /// let log = Log::new();
 /// assert!(log.is_empty());
 /// assert_eq!(log.len(), 0);

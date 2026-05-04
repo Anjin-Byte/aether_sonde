@@ -51,7 +51,7 @@ use crate::time::{BitRate, BitTime, Bits};
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::signal::NodeId;
+/// use aether_sonde::signal::NodeId;
 /// let n = NodeId::new(7);
 /// assert_eq!(n.as_u32(), 7);
 /// ```
@@ -87,7 +87,7 @@ impl NodeId {
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::signal::SignalKind;
+/// use aether_sonde::signal::SignalKind;
 /// let kind = SignalKind::Frame;
 /// assert_eq!(kind, SignalKind::Frame);
 /// assert_ne!(kind, SignalKind::Jam);
@@ -146,8 +146,8 @@ impl core::error::Error for SignalError {}
 /// # Examples
 ///
 /// ```
-/// use bellwether_core::signal::{NodeId, Signal, SignalKind};
-/// use bellwether_core::time::{BitRate, BitTime, Bits};
+/// use aether_sonde::signal::{NodeId, Signal, SignalKind};
+/// use aether_sonde::time::{BitRate, BitTime, Bits};
 ///
 /// let signal = Signal::frame(
 ///     NodeId::new(0),
@@ -187,8 +187,8 @@ impl Signal {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::signal::{NodeId, Signal};
-    /// use bellwether_core::time::{BitRate, BitTime, Bits};
+    /// use aether_sonde::signal::{NodeId, Signal};
+    /// use aether_sonde::time::{BitRate, BitTime, Bits};
     ///
     /// let s = Signal::frame(
     ///     NodeId::new(1),
@@ -233,8 +233,8 @@ impl Signal {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::signal::{NodeId, Signal, SignalKind};
-    /// use bellwether_core::time::{BitRate, BitTime, Bits};
+    /// use aether_sonde::signal::{NodeId, Signal, SignalKind};
+    /// use aether_sonde::time::{BitRate, BitTime, Bits};
     ///
     /// let j = Signal::jam(
     ///     NodeId::new(2),
@@ -301,8 +301,8 @@ impl Signal {
     /// # Examples
     ///
     /// ```
-    /// use bellwether_core::signal::{NodeId, Signal};
-    /// use bellwether_core::time::{BitRate, BitTime, Bits};
+    /// use aether_sonde::signal::{NodeId, Signal};
+    /// use aether_sonde::time::{BitRate, BitTime, Bits};
     ///
     /// let s = Signal::frame(
     ///     NodeId::new(0),
