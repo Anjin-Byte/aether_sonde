@@ -77,10 +77,7 @@ impl BackoffPolicy {
     /// assert_eq!(p.attempt_limit(), 8);
     /// assert_eq!(p.backoff_limit(), 5);
     /// ```
-    pub const fn new(
-        attempt_limit: u32,
-        backoff_limit: u32,
-    ) -> Result<Self, BackoffPolicyError> {
+    pub const fn new(attempt_limit: u32, backoff_limit: u32) -> Result<Self, BackoffPolicyError> {
         if attempt_limit == 0 {
             return Err(BackoffPolicyError::ZeroAttemptLimit);
         }
@@ -153,11 +150,7 @@ impl BackoffPolicy {
     /// assert_eq!(p.slot_count(1, 5), Ok(1));   // 5 % 2 = 1
     /// assert_eq!(p.slot_count(10, 2_000), Ok(2_000 % 1024));
     /// ```
-    pub const fn slot_count(
-        self,
-        n_collisions: u32,
-        random: u32,
-    ) -> Result<u32, BackoffAborted> {
+    pub const fn slot_count(self, n_collisions: u32, random: u32) -> Result<u32, BackoffAborted> {
         match self.window_size(n_collisions) {
             Some(window) => Ok(random % window),
             None => Err(BackoffAborted {

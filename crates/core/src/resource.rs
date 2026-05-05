@@ -279,19 +279,11 @@ impl<R: ResourceId> Claim<R> {
 }
 
 const fn max_bittime(a: BitTime, b: BitTime) -> BitTime {
-    if a.as_u64() >= b.as_u64() {
-        a
-    } else {
-        b
-    }
+    if a.as_u64() >= b.as_u64() { a } else { b }
 }
 
 const fn min_bittime(a: BitTime, b: BitTime) -> BitTime {
-    if a.as_u64() <= b.as_u64() {
-        a
-    } else {
-        b
-    }
+    if a.as_u64() <= b.as_u64() { a } else { b }
 }
 
 // ---------------------------------------------------------------------------
@@ -316,12 +308,12 @@ pub enum TransmissionError {
 impl core::fmt::Display for TransmissionError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::DurationMismatch => f.write_str(
-                "signal duration and claim duration must match (invariant I6)",
-            ),
-            Self::StartTimeMismatch => f.write_str(
-                "signal t0 and claim t_start must match (invariant I6)",
-            ),
+            Self::DurationMismatch => {
+                f.write_str("signal duration and claim duration must match (invariant I6)")
+            }
+            Self::StartTimeMismatch => {
+                f.write_str("signal t0 and claim t_start must match (invariant I6)")
+            }
         }
     }
 }
@@ -452,8 +444,7 @@ mod tests {
 
     #[test]
     fn claim_records_resource_and_endpoints() {
-        let c =
-            Claim::new(S0, BitTime::from_nanos(100), BitTime::from_nanos(200)).unwrap();
+        let c = Claim::new(S0, BitTime::from_nanos(100), BitTime::from_nanos(200)).unwrap();
         assert_eq!(c.resource(), S0);
         assert_eq!(c.t_start(), BitTime::from_nanos(100));
         assert_eq!(c.t_end(), BitTime::from_nanos(200));
@@ -462,8 +453,7 @@ mod tests {
     #[test]
     fn claim_duration_is_t_end_minus_t_start() {
         // Sharp oracle: exact integer subtraction.
-        let c =
-            Claim::new(S0, BitTime::from_nanos(100), BitTime::from_nanos(196)).unwrap();
+        let c = Claim::new(S0, BitTime::from_nanos(100), BitTime::from_nanos(196)).unwrap();
         assert_eq!(c.duration(), BitTime::from_nanos(96));
     }
 
@@ -539,7 +529,11 @@ mod tests {
     #[test]
     fn transmission_constructs_when_signal_matches_claim() {
         // 96 bits at 1 Gbps = 96 ns
-        let signal = frame_signal_at(BitTime::from_nanos(100), Bits::new(96), BitRate::ETHERNET_1G);
+        let signal = frame_signal_at(
+            BitTime::from_nanos(100),
+            Bits::new(96),
+            BitRate::ETHERNET_1G,
+        );
         let claim = Claim::new(S0, BitTime::from_nanos(100), BitTime::from_nanos(196)).unwrap();
         let tx = Transmission::new(signal, claim).unwrap();
         assert_eq!(tx.signal().duration(), tx.claim().duration());
@@ -548,7 +542,11 @@ mod tests {
 
     #[test]
     fn transmission_rejects_duration_mismatch() {
-        let signal = frame_signal_at(BitTime::from_nanos(100), Bits::new(96), BitRate::ETHERNET_1G);
+        let signal = frame_signal_at(
+            BitTime::from_nanos(100),
+            Bits::new(96),
+            BitRate::ETHERNET_1G,
+        );
         // claim duration = 100 ns ≠ signal duration = 96 ns
         let claim = Claim::new(S0, BitTime::from_nanos(100), BitTime::from_nanos(200)).unwrap();
         assert_eq!(
@@ -559,7 +557,11 @@ mod tests {
 
     #[test]
     fn transmission_rejects_start_time_mismatch() {
-        let signal = frame_signal_at(BitTime::from_nanos(100), Bits::new(96), BitRate::ETHERNET_1G);
+        let signal = frame_signal_at(
+            BitTime::from_nanos(100),
+            Bits::new(96),
+            BitRate::ETHERNET_1G,
+        );
         // claim t_start = 50 ns ≠ signal t0 = 100 ns
         let claim = Claim::new(S0, BitTime::from_nanos(50), BitTime::from_nanos(146)).unwrap();
         assert_eq!(
@@ -589,10 +591,8 @@ mod tests {
         // are distinct types. Consumers cannot convert one to the other —
         // any attempt requires a deliberate `Transmission::new` with a new
         // signal+claim pair, never coercion.
-        let collision_claim =
-            Claim::new(C0, BitTime::new(0), BitTime::new(100)).unwrap();
-        let serializer_claim =
-            Claim::new(S0, BitTime::new(0), BitTime::new(100)).unwrap();
+        let collision_claim = Claim::new(C0, BitTime::new(0), BitTime::new(100)).unwrap();
+        let serializer_claim = Claim::new(S0, BitTime::new(0), BitTime::new(100)).unwrap();
 
         assert_eq!(collision_claim.resource().as_u32(), 0);
         assert_eq!(serializer_claim.resource().as_u32(), 0);

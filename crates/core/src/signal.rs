@@ -388,8 +388,13 @@ mod tests {
 
     #[test]
     fn frame_records_source_t0_and_kind() {
-        let s = Signal::frame(SRC, BitTime::from_micros(5), Bits::new(100), BitRate::ETHERNET_1G)
-            .unwrap();
+        let s = Signal::frame(
+            SRC,
+            BitTime::from_micros(5),
+            Bits::new(100),
+            BitRate::ETHERNET_1G,
+        )
+        .unwrap();
         assert_eq!(s.source(), SRC);
         assert_eq!(s.t0(), BitTime::from_micros(5));
         assert_eq!(s.kind(), SignalKind::Frame);
@@ -397,9 +402,13 @@ mod tests {
 
     #[test]
     fn frame_t_end_is_t0_plus_duration() {
-        let s =
-            Signal::frame(SRC, BitTime::from_nanos(100), Bits::new(96), BitRate::ETHERNET_1G)
-                .unwrap();
+        let s = Signal::frame(
+            SRC,
+            BitTime::from_nanos(100),
+            Bits::new(96),
+            BitRate::ETHERNET_1G,
+        )
+        .unwrap();
         // 96 bits at 1 Gbps = 96 ns; t_end = 100 + 96 = 196 ns.
         assert_eq!(s.t_end(), BitTime::from_nanos(196));
         assert_eq!(s.t_end(), s.t0() + s.duration());
@@ -434,8 +443,13 @@ mod tests {
 
     #[test]
     fn jam_records_source_t0_and_kind() {
-        let j = Signal::jam(SRC, BitTime::from_nanos(50), Bits::new(32), BitRate::ETHERNET_100M)
-            .unwrap();
+        let j = Signal::jam(
+            SRC,
+            BitTime::from_nanos(50),
+            Bits::new(32),
+            BitRate::ETHERNET_100M,
+        )
+        .unwrap();
         assert_eq!(j.source(), SRC);
         assert_eq!(j.t0(), BitTime::from_nanos(50));
         assert_eq!(j.kind(), SignalKind::Jam);

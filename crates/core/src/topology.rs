@@ -498,9 +498,7 @@ impl TopologyBuilder {
     }
 
     fn node_kind(&self, id: NodeId) -> Option<&NodeKind> {
-        self.nodes
-            .get(id.as_u32() as usize)
-            .map(|n| &n.kind)
+        self.nodes.get(id.as_u32() as usize).map(|n| &n.kind)
     }
 
     /// Validate the constructed topology and return an immutable [`World`].
@@ -657,18 +655,19 @@ impl TopologyBuilder {
             }
         }
 
-        // 5. Materialize the World.
-        let segments: Vec<SegmentRecord> = self
+        // 5. Materialize the World. All slots are `Some` at build time;
+        // round 10c may later set entries to `None` on removal.
+        let segments: Vec<Option<SegmentRecord>> = self
             .segments
             .into_iter()
             .map(|s| match s {
-                SegmentBuilderRecord::Hd(h) => SegmentRecord::Hd(h),
-                SegmentBuilderRecord::Fd(f) => SegmentRecord::Fd(f),
+                SegmentBuilderRecord::Hd(h) => Some(SegmentRecord::Hd(h)),
+                SegmentBuilderRecord::Fd(f) => Some(SegmentRecord::Fd(f)),
             })
             .collect();
 
         // Per-node ports vector: index = port number; Some(seg) if connected.
-        let nodes: Vec<NodeRecord> = self
+        let nodes: Vec<Option<NodeRecord>> = self
             .nodes
             .iter()
             .enumerate()
@@ -683,7 +682,10 @@ impl TopologyBuilder {
                         *port_slot = Some(seg);
                     }
                 }
-                NodeRecord { kind: n.kind, ports }
+                Some(NodeRecord {
+                    kind: n.kind,
+                    ports,
+                })
             })
             .collect();
 
@@ -758,15 +760,20 @@ enum SegmentRecord {
     Fd(FdSegment),
 }
 
-/// A validated, immutable topology.
+/// A validated topology.
 ///
 /// Constructed exclusively via [`TopologyBuilder::build`]. The engine
-/// (round 8) consumes a `World` and produces an event log; there is no
-/// API that mutates a `World` after construction (invariant I1).
+/// owns a `World` and may extend or mutate it via continuity edits
+/// (round 10) — `apply_edit` is the only legal mutation entry point.
+///
+/// Internally, removed nodes and segments leave a `None` slot so that
+/// `NodeId` and `SegmentId` values remain stable references — events
+/// already in the log keep pointing to the correct entities even after
+/// removal (per `design/continuity.md` §2.c I9).
 #[derive(Debug, Clone)]
 pub struct World {
-    nodes: Vec<NodeRecord>,
-    segments: Vec<SegmentRecord>,
+    nodes: Vec<Option<NodeRecord>>,
+    segments: Vec<Option<SegmentRecord>>,
     collision_resources: Vec<CollisionId>,
     hd_segment_to_collision: HashMap<SegmentId, CollisionId>,
     fd_serializers: HashMap<SegmentId, (SerializerId, SerializerId)>,
@@ -774,15 +781,32 @@ pub struct World {
 }
 
 impl World {
-    /// The number of nodes in the topology.
+    /// The number of live nodes in the topology (excluding removed slots).
     #[must_use]
     pub fn node_count(&self) -> usize {
+        self.nodes.iter().filter(|n| n.is_some()).count()
+    }
+
+    /// The number of live segments in the topology (excluding removed slots).
+    #[must_use]
+    pub fn segment_count(&self) -> usize {
+        self.segments.iter().filter(|s| s.is_some()).count()
+    }
+
+    /// Total node-slot count, including removed (`None`) slots. Used by
+    /// callers that need to iterate over every `NodeId` ever assigned —
+    /// `NodeId(0)..NodeId(node_slot_count)` covers the full ID space.
+    /// Live filtering is done via `World::node(id)` which returns `None`
+    /// for removed slots.
+    #[must_use]
+    pub fn node_slot_count(&self) -> usize {
         self.nodes.len()
     }
 
-    /// The number of segments in the topology.
+    /// Total segment-slot count, including removed (`None`) slots.
+    /// Mirrors [`Self::node_slot_count`] for `SegmentId`.
     #[must_use]
-    pub fn segment_count(&self) -> usize {
+    pub fn segment_slot_count(&self) -> usize {
         self.segments.len()
     }
 
@@ -801,37 +825,43 @@ impl World {
     }
 
     /// Look up a node by ID.
+    ///
+    /// Returns `None` if `id` is out of range or the slot has been removed.
     #[must_use]
     pub fn node(&self, id: NodeId) -> Option<&NodeKind> {
         self.nodes
-            .get(id.as_u32() as usize)
+            .get(id.as_u32() as usize)?
+            .as_ref()
             .map(|n| &n.kind)
     }
 
-    /// Iterate over all `(NodeId, &NodeKind)` pairs.
+    /// Iterate over all live `(NodeId, &NodeKind)` pairs (skipping removed
+    /// slots).
     pub fn nodes(&self) -> impl Iterator<Item = (NodeId, &NodeKind)> + '_ {
-        self.nodes.iter().enumerate().map(|(i, n)| {
+        self.nodes.iter().enumerate().filter_map(|(i, n)| {
+            let n = n.as_ref()?;
             #[allow(clippy::cast_possible_truncation)]
-            (NodeId::new(i as u32), &n.kind)
+            Some((NodeId::new(i as u32), &n.kind))
         })
     }
 
     /// The kind of the segment with the given ID, or `None` if `id` is
-    /// out of range.
+    /// out of range or the slot has been removed.
     #[must_use]
     pub fn segment_kind(&self, id: SegmentId) -> Option<SegmentKind> {
-        self.segments.get(id.as_u32() as usize).map(|s| match s {
-            SegmentRecord::Hd(_) => SegmentKind::Hd,
-            SegmentRecord::Fd(_) => SegmentKind::Fd,
-        })
+        match self.segments.get(id.as_u32() as usize)?.as_ref()? {
+            SegmentRecord::Hd(_) => Some(SegmentKind::Hd),
+            SegmentRecord::Fd(_) => Some(SegmentKind::Fd),
+        }
     }
 
     /// Look up an HD segment by ID.
     ///
-    /// Returns `None` if `id` is out of range or refers to an FD segment.
+    /// Returns `None` if `id` is out of range, refers to an FD segment, or
+    /// the slot has been removed.
     #[must_use]
     pub fn hd_segment(&self, id: SegmentId) -> Option<&HdSegment> {
-        match self.segments.get(id.as_u32() as usize)? {
+        match self.segments.get(id.as_u32() as usize)?.as_ref()? {
             SegmentRecord::Hd(s) => Some(s),
             SegmentRecord::Fd(_) => None,
         }
@@ -839,10 +869,11 @@ impl World {
 
     /// Look up an FD segment by ID.
     ///
-    /// Returns `None` if `id` is out of range or refers to an HD segment.
+    /// Returns `None` if `id` is out of range, refers to an HD segment, or
+    /// the slot has been removed.
     #[must_use]
     pub fn fd_segment(&self, id: SegmentId) -> Option<&FdSegment> {
-        match self.segments.get(id.as_u32() as usize)? {
+        match self.segments.get(id.as_u32() as usize)?.as_ref()? {
             SegmentRecord::Fd(s) => Some(s),
             SegmentRecord::Hd(_) => None,
         }
@@ -860,11 +891,7 @@ impl World {
     ///
     /// Returns `None` if `id` is out of range or refers to an HD segment.
     #[must_use]
-    pub fn serializer_of(
-        &self,
-        id: SegmentId,
-        direction: Direction,
-    ) -> Option<SerializerId> {
+    pub fn serializer_of(&self, id: SegmentId, direction: Direction) -> Option<SerializerId> {
         let (a_to_b, b_to_a) = self.fd_serializers.get(&id).copied()?;
         Some(match direction {
             Direction::AtoB => a_to_b,
@@ -875,12 +902,450 @@ impl World {
     /// The egress serializer for a bridge port, or `None` if the port is
     /// not on a bridge.
     #[must_use]
-    pub fn bridge_egress_serializer(
-        &self,
-        node: NodeId,
-        port: PortId,
-    ) -> Option<SerializerId> {
+    pub fn bridge_egress_serializer(&self, node: NodeId, port: PortId) -> Option<SerializerId> {
         self.bridge_egress.get(&(node, port)).copied()
+    }
+
+    // -- Continuity (round 10) mutation primitives --------------------------
+    //
+    // Per `design/continuity.md` §3.a, topology becomes a time-indexed
+    // history. The engine calls these `pub(crate)` methods from
+    // `apply_edit` to extend a built `World` between dispatch chunks.
+    // External callers cannot mutate a `World` directly; they go through
+    // `Engine::apply_edit`, which validates and logs each edit.
+    //
+    // Round 10a ships only node-add primitives (no segment mutations,
+    // no precomputed-map maintenance). Round 10b adds segment-add;
+    // round 10c adds removes.
+
+    /// Append an end-station node to the topology and return its `NodeId`.
+    ///
+    /// Crate-internal; the engine calls this from `apply_edit`. Adds a
+    /// node with an empty (all-disconnected) port set of size `port_count`.
+    pub(crate) fn push_end_station(&mut self, port_count: u32) -> NodeId {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "node_count fits in u32 for any realistic topology"
+        )]
+        let id = NodeId::new(self.nodes.len() as u32);
+        self.nodes.push(Some(NodeRecord {
+            kind: NodeKind::EndStation(EndStationData),
+            ports: vec![None; port_count as usize],
+        }));
+        id
+    }
+
+    /// Append a repeater node to the topology and return its `NodeId`.
+    pub(crate) fn push_repeater(&mut self, port_count: u32, delta_h: BitTime) -> NodeId {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "node_count fits in u32 for any realistic topology"
+        )]
+        let id = NodeId::new(self.nodes.len() as u32);
+        self.nodes.push(Some(NodeRecord {
+            kind: NodeKind::Repeater(RepeaterData { delta_h }),
+            ports: vec![None; port_count as usize],
+        }));
+        id
+    }
+
+    /// Append a bridge node to the topology and return its `NodeId`.
+    ///
+    /// Note: bridge egress serializers are normally allocated at
+    /// `TopologyBuilder::build` time. Bridges added later via this method
+    /// have empty egress-serializer maps until segments connect to their
+    /// ports (round 10b territory).
+    pub(crate) fn push_bridge(
+        &mut self,
+        port_count: u32,
+        decode_threshold: Bits,
+        processing_delay: BitTime,
+    ) -> NodeId {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "node_count fits in u32 for any realistic topology"
+        )]
+        let id = NodeId::new(self.nodes.len() as u32);
+        self.nodes.push(Some(NodeRecord {
+            kind: NodeKind::Bridge(BridgeData {
+                decode_threshold,
+                processing_delay,
+            }),
+            ports: vec![None; port_count as usize],
+        }));
+        // Allocate bridge-egress serializers for each port. These index
+        // into the same id space as build-time-allocated serializers.
+        let starting_idx = self.bridge_egress.len() + self.fd_serializers.len() * 2;
+        for p in 0..port_count {
+            let port_id = PortId::new(p);
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "serializer count fits in u32 for any realistic topology"
+            )]
+            let serializer = SerializerId::new((starting_idx + p as usize) as u32);
+            self.bridge_egress.insert((id, port_id), serializer);
+        }
+        id
+    }
+
+    // -- Round 10b: segment-add primitives ---------------------------------
+    //
+    // These extend a built `World` with new segments. The engine's
+    // `apply_edit` dispatch performs all validation (endpoint existence,
+    // port range, A7 cycle check, port-already-connected) before calling
+    // these mutators. They blindly append.
+
+    /// Number of ports declared on `node`, or `None` if the node is
+    /// unknown or has been removed.
+    #[must_use]
+    pub fn port_count_of(&self, node: NodeId) -> Option<u32> {
+        let n = self.nodes.get(node.as_u32() as usize)?.as_ref()?;
+        // Port count was set from a `u32` at construction time and is
+        // bounded by realistic topology sizes.
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "port count fits in u32 by construction"
+        )]
+        Some(n.ports.len() as u32)
+    }
+
+    /// The segment connected to `(node, port)`, or `None` if the port is
+    /// disconnected (or the node/port is unknown or removed).
+    #[must_use]
+    pub fn port_segment_at(&self, node: NodeId, port: PortId) -> Option<SegmentId> {
+        let n = self.nodes.get(node.as_u32() as usize)?.as_ref()?;
+        n.ports.get(port.as_u32() as usize).copied().flatten()
+    }
+
+    /// Append an HD segment. Caller (the engine's `apply_edit` handler) is
+    /// responsible for prior validation: endpoints exist, ports are in
+    /// range, both ports are currently disconnected, endpoints are on
+    /// distinct nodes, `delay > 0`, and the new edge does not violate A7.
+    pub(crate) fn push_hd_segment(
+        &mut self,
+        rate: BitRate,
+        delay: BitTime,
+        a: Endpoint,
+        b: Endpoint,
+    ) -> SegmentId {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "segment_count fits in u32 for any realistic topology"
+        )]
+        let id = SegmentId::new(self.segments.len() as u32);
+        self.segments.push(Some(SegmentRecord::Hd(HdSegment {
+            rate,
+            delay,
+            endpoints: (a, b),
+        })));
+        self.set_port_slot(a, Some(id));
+        self.set_port_slot(b, Some(id));
+        id
+    }
+
+    /// Append an FD segment. Caller is responsible for prior validation.
+    pub(crate) fn push_fd_segment(
+        &mut self,
+        rate: BitRate,
+        delay: BitTime,
+        a: Endpoint,
+        b: Endpoint,
+    ) -> SegmentId {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "segment_count fits in u32 for any realistic topology"
+        )]
+        let id = SegmentId::new(self.segments.len() as u32);
+        self.segments.push(Some(SegmentRecord::Fd(FdSegment {
+            rate,
+            delay,
+            endpoints: (a, b),
+        })));
+        self.set_port_slot(a, Some(id));
+        self.set_port_slot(b, Some(id));
+        id
+    }
+
+    /// Set the port slot at `(ep.node, ep.port)` to `slot`. Caller has
+    /// validated that the node exists and the port is in range.
+    //
+    // RATIONALE: callers (the engine's `apply_edit` handler) validate
+    // endpoint existence and port range *before* invoking this mutator,
+    // so `as_mut()` is guaranteed to land on `Some`. A panic here would
+    // indicate an internal invariant violation in the engine.
+    #[allow(
+        clippy::expect_used,
+        reason = "internal invariant maintained by the engine; not a real panic path"
+    )]
+    fn set_port_slot(&mut self, ep: Endpoint, slot: Option<SegmentId>) {
+        let node = self.nodes[ep.node.as_u32() as usize]
+            .as_mut()
+            .expect("endpoint node validated by caller");
+        node.ports[ep.port.as_u32() as usize] = slot;
+    }
+
+    /// Re-derive the four resource-id maps (`collision_resources`,
+    /// `hd_segment_to_collision`, `fd_serializers`, `bridge_egress`) from
+    /// the current node/segment state.
+    ///
+    /// Per `design/continuity.md` D1 (round 10b), `CollisionId` and
+    /// `SerializerId` values are not stable across edits — only their
+    /// equivalence relation (segments in the same HD component share a
+    /// `CollisionId`, etc.) is preserved.
+    //
+    // RATIONALE for the lint allowances: this function mirrors the
+    // single-pass build logic in `TopologyBuilder::build` over `World`
+    // state. The `expect` is a BFS post-condition (every visited vertex
+    // has a component assigned).
+    #[allow(
+        clippy::expect_used,
+        clippy::missing_panics_doc,
+        clippy::too_many_lines,
+        reason = "axiom-validation entry point; the expect is a BFS post-condition that cannot fire under correct vertex assignment, so no real panic to document"
+    )]
+    pub(crate) fn reassign_resource_maps(&mut self) {
+        self.collision_resources.clear();
+        self.hd_segment_to_collision.clear();
+        self.fd_serializers.clear();
+        self.bridge_egress.clear();
+
+        // 1. HD vertex assignment: end stations and repeaters collapse
+        //    all their ports into one vertex; bridge ports are each their
+        //    own vertex (per round 5's discipline). Removed slots are skipped.
+        let mut vertex_of: HashMap<(NodeId, PortId), usize> = HashMap::new();
+        let mut node_to_vertex: HashMap<NodeId, usize> = HashMap::new();
+        let mut next_vid: usize = 0;
+        for seg in self.segments.iter().filter_map(|s| s.as_ref()) {
+            let SegmentRecord::Hd(h) = seg else {
+                continue;
+            };
+            for ep in [h.endpoints.0, h.endpoints.1] {
+                let kind = self
+                    .nodes
+                    .get(ep.node.as_u32() as usize)
+                    .and_then(|n| n.as_ref())
+                    .map(|n| &n.kind);
+                if matches!(kind, Some(NodeKind::Bridge(_))) {
+                    vertex_of.entry((ep.node, ep.port)).or_insert_with(|| {
+                        let v = next_vid;
+                        next_vid += 1;
+                        v
+                    });
+                } else {
+                    let v = *node_to_vertex.entry(ep.node).or_insert_with(|| {
+                        let v = next_vid;
+                        next_vid += 1;
+                        v
+                    });
+                    vertex_of.insert((ep.node, ep.port), v);
+                }
+            }
+        }
+        let vertex_count = next_vid;
+
+        // 2. Build adjacency over HD segments and BFS each component.
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); vertex_count];
+        let mut hd_segment_indices: Vec<usize> = Vec::new();
+        for (idx, seg) in self.segments.iter().enumerate() {
+            if let Some(SegmentRecord::Hd(h)) = seg {
+                let va = vertex_of[&(h.endpoints.0.node, h.endpoints.0.port)];
+                let vb = vertex_of[&(h.endpoints.1.node, h.endpoints.1.port)];
+                adj[va].push(vb);
+                adj[vb].push(va);
+                hd_segment_indices.push(idx);
+            }
+        }
+
+        let mut visited = vec![false; vertex_count];
+        let mut vertex_to_component: Vec<Option<usize>> = vec![None; vertex_count];
+        let mut component_count: usize = 0;
+        for start in 0..vertex_count {
+            if visited[start] {
+                continue;
+            }
+            let cid = component_count;
+            component_count += 1;
+            let mut q: VecDeque<usize> = VecDeque::new();
+            q.push_back(start);
+            visited[start] = true;
+            vertex_to_component[start] = Some(cid);
+            while let Some(v) = q.pop_front() {
+                for &u in &adj[v] {
+                    if !visited[u] {
+                        visited[u] = true;
+                        vertex_to_component[u] = Some(cid);
+                        q.push_back(u);
+                    }
+                }
+            }
+        }
+
+        // 3. CollisionId per HD component.
+        self.collision_resources = (0..component_count)
+            .map(|i| {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "component count fits in u32"
+                )]
+                CollisionId::new(i as u32)
+            })
+            .collect();
+
+        for &idx in &hd_segment_indices {
+            let Some(SegmentRecord::Hd(h)) = &self.segments[idx] else {
+                continue;
+            };
+            let v = vertex_of[&(h.endpoints.0.node, h.endpoints.0.port)];
+            let comp = vertex_to_component[v].expect("BFS visits every vertex");
+            #[allow(clippy::cast_possible_truncation, reason = "segment_count fits in u32")]
+            let seg_id = SegmentId::new(idx as u32);
+            self.hd_segment_to_collision
+                .insert(seg_id, self.collision_resources[comp]);
+        }
+
+        // 4. FD serializers (2 per FD segment).
+        let mut next_serializer: u32 = 0;
+        for (idx, seg) in self.segments.iter().enumerate() {
+            if matches!(seg, Some(SegmentRecord::Fd(_))) {
+                let s_ab = SerializerId::new(next_serializer);
+                next_serializer += 1;
+                let s_ba = SerializerId::new(next_serializer);
+                next_serializer += 1;
+                #[allow(clippy::cast_possible_truncation, reason = "segment_count fits in u32")]
+                let seg_id = SegmentId::new(idx as u32);
+                self.fd_serializers.insert(seg_id, (s_ab, s_ba));
+            }
+        }
+
+        // 5. Bridge egress serializers (1 per bridge port).
+        for (node_idx, node_slot) in self.nodes.iter().enumerate() {
+            let Some(node) = node_slot.as_ref() else {
+                continue;
+            };
+            if !matches!(node.kind, NodeKind::Bridge(_)) {
+                continue;
+            }
+            #[allow(clippy::cast_possible_truncation, reason = "node_count fits in u32")]
+            let node_id = NodeId::new(node_idx as u32);
+            for p in 0..node.ports.len() {
+                #[allow(clippy::cast_possible_truncation, reason = "port count fits in u32")]
+                let port_id = PortId::new(p as u32);
+                let s = SerializerId::new(next_serializer);
+                next_serializer += 1;
+                self.bridge_egress.insert((node_id, port_id), s);
+            }
+        }
+    }
+
+    // -- Round 10c: removal primitives ------------------------------------
+    //
+    // Per `design/continuity.md` §1.b cases 2–4, removals leave `None`
+    // slots in `nodes`/`segments` so that `NodeId`/`SegmentId` values
+    // referenced by already-logged events remain valid (I9). Callers
+    // (the engine's `apply_edit` handler) validate before invoking
+    // these mutators; they do not re-validate. Resource-id maps are
+    // stale after these calls — `reassign_resource_maps` must run.
+
+    /// All segment IDs currently connected to any port of `node`.
+    /// Returns an empty `Vec` if the node is unknown or removed.
+    #[must_use]
+    pub fn segments_incident_to(&self, node: NodeId) -> Vec<SegmentId> {
+        let Some(n) = self
+            .nodes
+            .get(node.as_u32() as usize)
+            .and_then(|s| s.as_ref())
+        else {
+            return Vec::new();
+        };
+        n.ports.iter().filter_map(|slot| *slot).collect()
+    }
+
+    /// Remove a segment from the topology. Both endpoint port slots are
+    /// cleared. The `SegmentId` is preserved as a `None` slot.
+    pub(crate) fn remove_segment(&mut self, segment: SegmentId) {
+        let Some(slot) = self.segments.get_mut(segment.as_u32() as usize) else {
+            return;
+        };
+        let Some(record) = slot.take() else {
+            return;
+        };
+        let (a, b) = match record {
+            SegmentRecord::Hd(h) => h.endpoints,
+            SegmentRecord::Fd(f) => f.endpoints,
+        };
+        // Clear port slots on both endpoints (only if the slot points at
+        // this segment — defensive against stale state).
+        for ep in [a, b] {
+            if let Some(node) = self
+                .nodes
+                .get_mut(ep.node.as_u32() as usize)
+                .and_then(|s| s.as_mut())
+                && let Some(port_slot) = node.ports.get_mut(ep.port.as_u32() as usize)
+                && *port_slot == Some(segment)
+            {
+                *port_slot = None;
+            }
+        }
+    }
+
+    /// Disconnect the port at `(node, port)`. The segment connected to
+    /// that port (if any) is also removed (segments are point-to-point).
+    pub(crate) fn disconnect_port(&mut self, node: NodeId, port: PortId) {
+        if let Some(seg) = self.port_segment_at(node, port) {
+            self.remove_segment(seg);
+        }
+    }
+
+    /// Remove a node from the topology. Caller has already removed all
+    /// incident segments via `remove_segment` / `disconnect_port`.
+    pub(crate) fn remove_node(&mut self, node: NodeId) {
+        if let Some(slot) = self.nodes.get_mut(node.as_u32() as usize) {
+            *slot = None;
+        }
+    }
+
+    // -- Round 10d: segment parameter change primitives -------------------
+    //
+    // Per `design/continuity.md` §1.b case 1, segment parameter changes
+    // ("the cable was retroactively replaced behind the signal") affect
+    // only future transmissions; in-flight signals retain their original
+    // arrival schedule because their `FrontArrive`/`BackArrive` events
+    // are scheduled with absolute timestamps at `TxStart` time. These
+    // mutators just overwrite the field; the engine's `apply_edit`
+    // handler recomputes reachability maps after the call so subsequent
+    // `TxStart` events use the new value.
+
+    /// Set the propagation delay of `segment`. Silent no-op if `segment`
+    /// is out of range or has been removed (the engine's `apply_edit`
+    /// handler validates before calling).
+    pub(crate) fn set_segment_delay(&mut self, segment: SegmentId, new_delay: BitTime) {
+        let Some(slot) = self
+            .segments
+            .get_mut(segment.as_u32() as usize)
+            .and_then(|s| s.as_mut())
+        else {
+            return;
+        };
+        match slot {
+            SegmentRecord::Hd(h) => h.delay = new_delay,
+            SegmentRecord::Fd(f) => f.delay = new_delay,
+        }
+    }
+
+    /// Set the bit rate of `segment`. Silent no-op if `segment` is out
+    /// of range or has been removed.
+    pub(crate) fn set_segment_rate(&mut self, segment: SegmentId, new_rate: BitRate) {
+        let Some(slot) = self
+            .segments
+            .get_mut(segment.as_u32() as usize)
+            .and_then(|s| s.as_mut())
+        else {
+            return;
+        };
+        match slot {
+            SegmentRecord::Hd(h) => h.rate = new_rate,
+            SegmentRecord::Fd(f) => f.rate = new_rate,
+        }
     }
 }
 
@@ -974,10 +1439,20 @@ mod tests {
         let s2 = b.add_end_station(1);
         let bridge = b.add_bridge(2, Bits::new(64), delay(500));
         let seg_a = b
-            .add_hd_segment(BitRate::ETHERNET_10M, delay(1_000), ep(s1, 0), ep(bridge, 0))
+            .add_hd_segment(
+                BitRate::ETHERNET_10M,
+                delay(1_000),
+                ep(s1, 0),
+                ep(bridge, 0),
+            )
             .unwrap();
         let seg_b = b
-            .add_hd_segment(BitRate::ETHERNET_10M, delay(1_000), ep(s2, 0), ep(bridge, 1))
+            .add_hd_segment(
+                BitRate::ETHERNET_10M,
+                delay(1_000),
+                ep(s2, 0),
+                ep(bridge, 1),
+            )
             .unwrap();
         let world = b.build().unwrap();
 
@@ -989,8 +1464,16 @@ mod tests {
             "bridge ports terminate HD components — distinct collision resources",
         );
         // Bridge has 2 egress serializers (one per port).
-        assert!(world.bridge_egress_serializer(bridge, PortId::new(0)).is_some());
-        assert!(world.bridge_egress_serializer(bridge, PortId::new(1)).is_some());
+        assert!(
+            world
+                .bridge_egress_serializer(bridge, PortId::new(0))
+                .is_some()
+        );
+        assert!(
+            world
+                .bridge_egress_serializer(bridge, PortId::new(1))
+                .is_some()
+        );
     }
 
     // -- A7 unique-path violations -------------------------------------------
@@ -1009,10 +1492,7 @@ mod tests {
         b.add_hd_segment(BitRate::ETHERNET_10M, delay(1_000), ep(s3, 1), ep(s1, 1))
             .unwrap();
         let result = b.build();
-        assert!(matches!(
-            result,
-            Err(BuildError::UniquePathViolated { .. }),
-        ));
+        assert!(matches!(result, Err(BuildError::UniquePathViolated { .. }),));
     }
 
     #[test]
@@ -1032,10 +1512,7 @@ mod tests {
         b.add_hd_segment(BitRate::ETHERNET_10M, delay(1_000), ep(r2, 1), ep(s2, 1))
             .unwrap();
         let result = b.build();
-        assert!(matches!(
-            result,
-            Err(BuildError::UniquePathViolated { .. }),
-        ));
+        assert!(matches!(result, Err(BuildError::UniquePathViolated { .. }),));
     }
 
     #[test]
@@ -1080,12 +1557,7 @@ mod tests {
         let s1 = b.add_end_station(1);
         let s2 = b.add_end_station(1);
         // Port 5 doesn't exist on s2.
-        let result = b.add_hd_segment(
-            BitRate::ETHERNET_10M,
-            delay(1_000),
-            ep(s1, 0),
-            ep(s2, 5),
-        );
+        let result = b.add_hd_segment(BitRate::ETHERNET_10M, delay(1_000), ep(s1, 0), ep(s2, 5));
         assert!(matches!(result, Err(BuildError::UnknownPort { .. })));
     }
 
@@ -1111,12 +1583,7 @@ mod tests {
     fn rejects_endpoints_on_same_node() {
         let mut b = TopologyBuilder::new();
         let s1 = b.add_end_station(2);
-        let result = b.add_hd_segment(
-            BitRate::ETHERNET_10M,
-            delay(1_000),
-            ep(s1, 0),
-            ep(s1, 1),
-        );
+        let result = b.add_hd_segment(BitRate::ETHERNET_10M, delay(1_000), ep(s1, 0), ep(s1, 1));
         assert!(matches!(
             result,
             Err(BuildError::EndpointsOnSameNode { .. }),
@@ -1128,8 +1595,7 @@ mod tests {
         let mut b = TopologyBuilder::new();
         let s1 = b.add_end_station(1);
         let s2 = b.add_end_station(1);
-        let result =
-            b.add_hd_segment(BitRate::ETHERNET_10M, BitTime::ZERO, ep(s1, 0), ep(s2, 0));
+        let result = b.add_hd_segment(BitRate::ETHERNET_10M, BitTime::ZERO, ep(s1, 0), ep(s2, 0));
         assert_eq!(result, Err(BuildError::ZeroDelay));
     }
 
@@ -1184,9 +1650,15 @@ mod tests {
         let mut b = TopologyBuilder::new();
         let bridge = b.add_bridge(3, Bits::new(64), delay(500));
         let world = b.build().unwrap();
-        let s0 = world.bridge_egress_serializer(bridge, PortId::new(0)).unwrap();
-        let s1 = world.bridge_egress_serializer(bridge, PortId::new(1)).unwrap();
-        let s2 = world.bridge_egress_serializer(bridge, PortId::new(2)).unwrap();
+        let s0 = world
+            .bridge_egress_serializer(bridge, PortId::new(0))
+            .unwrap();
+        let s1 = world
+            .bridge_egress_serializer(bridge, PortId::new(1))
+            .unwrap();
+        let s2 = world
+            .bridge_egress_serializer(bridge, PortId::new(2))
+            .unwrap();
         assert_ne!(s0, s1);
         assert_ne!(s1, s2);
         assert_ne!(s0, s2);
@@ -1221,7 +1693,9 @@ mod tests {
 
     #[test]
     fn build_error_implements_error_trait_and_displays() {
-        let err = BuildError::UnknownNode { node: NodeId::new(42) };
+        let err = BuildError::UnknownNode {
+            node: NodeId::new(42),
+        };
         let _: &dyn core::error::Error = &err;
         let msg = format!("{err}");
         assert!(msg.contains("unknown node"));

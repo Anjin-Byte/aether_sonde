@@ -235,12 +235,7 @@ pub trait Forwarding<F> {
     /// `all_ports` is the bridge's full port set; the policy may consult
     /// it (as [`FloodForwarding`] does) or ignore it (as a static-table
     /// policy might).
-    fn egress_ports(
-        &self,
-        frame: &F,
-        ingress: PortId,
-        all_ports: &[PortId],
-    ) -> Vec<PortId>;
+    fn egress_ports(&self, frame: &F, ingress: PortId, all_ports: &[PortId]) -> Vec<PortId>;
 }
 
 /// Flood-everything forwarding: send to every port in `all_ports` except
@@ -264,12 +259,7 @@ pub trait Forwarding<F> {
 pub struct FloodForwarding;
 
 impl<F> Forwarding<F> for FloodForwarding {
-    fn egress_ports(
-        &self,
-        _frame: &F,
-        ingress: PortId,
-        all_ports: &[PortId],
-    ) -> Vec<PortId> {
+    fn egress_ports(&self, _frame: &F, ingress: PortId, all_ports: &[PortId]) -> Vec<PortId> {
         all_ports
             .iter()
             .copied()
@@ -489,10 +479,7 @@ mod tests {
             PortId::new(3),
         ];
         let egress = policy.egress_ports(&(), PortId::new(1), &all);
-        assert_eq!(
-            egress,
-            vec![PortId::new(0), PortId::new(2), PortId::new(3)],
-        );
+        assert_eq!(egress, vec![PortId::new(0), PortId::new(2), PortId::new(3)],);
     }
 
     #[test]
@@ -514,7 +501,9 @@ mod tests {
         struct CustomFrame {
             _payload: [u8; 4],
         }
-        let frame = CustomFrame { _payload: [1, 2, 3, 4] };
+        let frame = CustomFrame {
+            _payload: [1, 2, 3, 4],
+        };
         let policy = FloodForwarding;
         let all = [PortId::new(0), PortId::new(1)];
         let egress = policy.egress_ports(&frame, PortId::new(0), &all);

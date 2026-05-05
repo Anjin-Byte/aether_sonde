@@ -182,9 +182,7 @@ pub fn first_collision_detect_at(log: &Log, node: NodeId) -> Option<BitTime> {
 pub fn receive_complete(log: &Log, node: NodeId, signal: Signal, t: BitTime) -> bool {
     log.iter().any(|entry| match entry.event {
         Event::BackArrive {
-            node: n,
-            signal: s,
-            ..
+            node: n, signal: s, ..
         } => n == node && s == signal && entry.key.time <= t,
         _ => false,
     })
@@ -218,13 +216,21 @@ mod tests {
     fn empty_log_has_no_carrier_anywhere() {
         let log = Log::new();
         assert!(!carrier_sense(&log, NodeId::new(0), BitTime::ZERO));
-        assert!(!carrier_sense(&log, NodeId::new(0), BitTime::from_micros(100)));
+        assert!(!carrier_sense(
+            &log,
+            NodeId::new(0),
+            BitTime::from_micros(100)
+        ));
     }
 
     #[test]
     fn empty_log_has_no_collision_anywhere() {
         let log = Log::new();
-        assert!(!collision_detect(&log, NodeId::new(0), BitTime::from_micros(100)));
+        assert!(!collision_detect(
+            &log,
+            NodeId::new(0),
+            BitTime::from_micros(100)
+        ));
         assert_eq!(first_collision_detect_at(&log, NodeId::new(0)), None);
     }
 
@@ -312,16 +318,21 @@ mod tests {
         let (engine, s1, s2) = run_hd_1();
         let log = engine.log();
         // Reconstruct the signal s1 transmitted: 512 bits at 10 Mbps from t=0.
-        let signal = Signal::frame(
-            s1,
-            BitTime::ZERO,
-            Bits::new(512),
-            BitRate::ETHERNET_10M,
-        )
-        .unwrap();
+        let signal =
+            Signal::frame(s1, BitTime::ZERO, Bits::new(512), BitRate::ETHERNET_10M).unwrap();
         // BackArrive at s2 fires at t = τ + duration = 5 + 51.2 = 56.2 µs.
-        assert!(!receive_complete(log, s2, signal, BitTime::from_nanos(56_199)));
-        assert!(receive_complete(log, s2, signal, BitTime::from_nanos(56_200)));
+        assert!(!receive_complete(
+            log,
+            s2,
+            signal,
+            BitTime::from_nanos(56_199)
+        ));
+        assert!(receive_complete(
+            log,
+            s2,
+            signal,
+            BitTime::from_nanos(56_200)
+        ));
         assert!(receive_complete(log, s2, signal, BitTime::from_millis(1)));
     }
 
@@ -364,7 +375,10 @@ mod tests {
     fn theorem_1_first_collision_detect_at_matches_closed_form() {
         let (engine, a, b) = run_theorem_1();
         let log = engine.log();
-        assert_eq!(first_collision_detect_at(log, b), Some(BitTime::from_micros(5)));
+        assert_eq!(
+            first_collision_detect_at(log, b),
+            Some(BitTime::from_micros(5))
+        );
         assert_eq!(
             first_collision_detect_at(log, a),
             Some(BitTime::from_nanos(9_900)),
@@ -401,8 +415,7 @@ mod tests {
         assert!(!collision_detect(log, s2, BitTime::from_micros(1)));
 
         // Reconstruct the signal: 96 bits at 1 Gbps starting at t=0.
-        let signal =
-            Signal::frame(s1, BitTime::ZERO, Bits::new(96), BitRate::ETHERNET_1G).unwrap();
+        let signal = Signal::frame(s1, BitTime::ZERO, Bits::new(96), BitRate::ETHERNET_1G).unwrap();
         // BackArrive at s2 fires at t = 100 + 96 = 196 ns.
         assert!(!receive_complete(log, s2, signal, BitTime::from_nanos(195)));
         assert!(receive_complete(log, s2, signal, BitTime::from_nanos(196)));

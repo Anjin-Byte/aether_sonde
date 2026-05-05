@@ -20,8 +20,8 @@
 
 use crate::resource::SerializerId;
 use crate::signal::{NodeId, Signal};
-use crate::time::BitTime;
-use crate::topology::PortId;
+use crate::time::{BitRate, BitTime};
+use crate::topology::{PortId, SegmentId, SegmentKind};
 
 // ===========================================================================
 // FrameId
@@ -216,6 +216,105 @@ pub enum Event {
         /// The retry attempt number (0-indexed: first retry is 0).
         attempt: u32,
     },
+
+    // -- Topology mutation events (round 10 / continuity) -------------------
+    //
+    // Per `design/continuity.md` §3.c, topology mutations are first-class
+    // events in the log. They fire in `Phase::LocalDecision` at the time
+    // of the edit. They do not affect any of the four observable queries.
+    /// A new segment was added to the topology.
+    SegmentAdded {
+        /// The new segment's ID.
+        segment: SegmentId,
+        /// Whether the new segment is HD or FD.
+        kind: SegmentKind,
+    },
+    /// A segment was removed from the topology. In-flight signals on the
+    /// segment, if any, produce [`Event::SignalLost`] events at the same
+    /// time.
+    SegmentRemoved {
+        /// The removed segment's ID.
+        segment: SegmentId,
+    },
+    /// A new node was added to the topology.
+    NodeAdded {
+        /// The new node's ID.
+        node: NodeId,
+    },
+    /// A node was removed from the topology. Pending events referencing
+    /// this node are canceled and may produce [`Event::SignalLost`] entries.
+    NodeRemoved {
+        /// The removed node's ID.
+        node: NodeId,
+    },
+    /// A segment's propagation delay was changed. Per
+    /// `design/continuity.md` §1.b case 1, in-flight signals retain their
+    /// original arrival schedule; the new delay applies to subsequent
+    /// transmissions on the segment.
+    SegmentDelayChanged {
+        /// The segment whose delay changed.
+        segment: SegmentId,
+        /// The previous delay.
+        old: BitTime,
+        /// The new delay.
+        new: BitTime,
+    },
+    /// A segment's bit rate was changed. As with delay, in-flight signals
+    /// retain their schedule; the new rate applies to subsequent
+    /// transmissions.
+    SegmentRateChanged {
+        /// The segment whose rate changed.
+        segment: SegmentId,
+        /// The previous rate.
+        old: BitRate,
+        /// The new rate.
+        new: BitRate,
+    },
+    /// A node's MAC configuration was changed. The new configuration takes
+    /// effect for subsequent transmissions; in-flight transmissions retain
+    /// the configuration that was in effect at their `TxStart`.
+    MacConfigChanged {
+        /// The node whose configuration changed.
+        node: NodeId,
+    },
+    /// A port was disconnected from its segment. In-flight signals
+    /// destined for the disconnected endpoint produce
+    /// [`Event::SignalLost`] entries.
+    PortDisconnected {
+        /// The node hosting the disconnected port.
+        node: NodeId,
+        /// The disconnected port.
+        port: PortId,
+        /// The segment from which the port was disconnected.
+        segment: SegmentId,
+    },
+
+    /// A signal in flight was lost due to a topology mutation. Per
+    /// `design/continuity.md` §1.b cases 2–4, disconnects, removals, and
+    /// node-deletions cancel queued events for in-flight signals; this
+    /// event records each cancellation.
+    SignalLost {
+        /// The signal whose remaining propagation was canceled.
+        signal: Signal,
+        /// Why the signal was lost.
+        reason: SignalLostReason,
+    },
+}
+
+/// The cause of a [`Event::SignalLost`] event.
+///
+/// Continuity (round 10) introduces three ways an in-flight signal can be
+/// lost: the segment it's propagating on is removed, one of the segment's
+/// endpoint ports is disconnected, or a node referenced by the signal's
+/// scheduled events is removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SignalLostReason {
+    /// The segment carrying the signal was removed.
+    SegmentRemoved,
+    /// One of the segment's endpoint ports was disconnected.
+    PortDisconnected,
+    /// A node referenced by a scheduled event for this signal was removed.
+    NodeRemoved,
 }
 
 impl Event {
@@ -236,18 +335,28 @@ impl Event {
     #[must_use]
     pub const fn phase(&self) -> Phase {
         match self {
-            Event::BackArrive { .. } | Event::TxEnd { .. } | Event::JamEnd { .. } => {
-                Phase::Release
-            }
+            Event::BackArrive { .. } | Event::TxEnd { .. } | Event::JamEnd { .. } => Phase::Release,
             Event::FrontArrive { .. } => Phase::Assertion,
             Event::CollisionDetect { .. }
             | Event::JamStart { .. }
             | Event::FrameEligible { .. } => Phase::Reaction,
+            // LocalDecision phase covers timer-driven and state-mutation
+            // events. Topology events (round 10 / continuity) sit here too:
+            // they are state changes, not reactions to phase-2 assertions.
             Event::TxAttempt { .. }
             | Event::TxStart { .. }
             | Event::Enqueue { .. }
             | Event::Dequeue { .. }
-            | Event::BackoffExpire { .. } => Phase::LocalDecision,
+            | Event::BackoffExpire { .. }
+            | Event::SegmentAdded { .. }
+            | Event::SegmentRemoved { .. }
+            | Event::NodeAdded { .. }
+            | Event::NodeRemoved { .. }
+            | Event::SegmentDelayChanged { .. }
+            | Event::SegmentRateChanged { .. }
+            | Event::MacConfigChanged { .. }
+            | Event::PortDisconnected { .. }
+            | Event::SignalLost { .. } => Phase::LocalDecision,
         }
     }
 }
@@ -420,7 +529,15 @@ mod tests {
         let n = NodeId::new(0);
         let p = PortId::new(0);
         let s = signal();
-        assert_eq!(Event::BackArrive { node: n, port: p, signal: s }.phase(), Phase::Release);
+        assert_eq!(
+            Event::BackArrive {
+                node: n,
+                port: p,
+                signal: s
+            }
+            .phase(),
+            Phase::Release
+        );
         assert_eq!(Event::TxEnd { node: n, signal: s }.phase(), Phase::Release);
         assert_eq!(Event::JamEnd { node: n }.phase(), Phase::Release);
     }
@@ -431,7 +548,12 @@ mod tests {
         let p = PortId::new(0);
         let s = signal();
         assert_eq!(
-            Event::FrontArrive { node: n, port: p, signal: s }.phase(),
+            Event::FrontArrive {
+                node: n,
+                port: p,
+                signal: s
+            }
+            .phase(),
             Phase::Assertion,
         );
     }
@@ -446,27 +568,113 @@ mod tests {
         );
         assert_eq!(Event::JamStart { node: n }.phase(), Phase::Reaction);
         assert_eq!(
-            Event::FrameEligible { bridge: n, port: PortId::new(0), frame: FrameId::new(0) }
-                .phase(),
+            Event::FrameEligible {
+                bridge: n,
+                port: PortId::new(0),
+                frame: FrameId::new(0)
+            }
+            .phase(),
             Phase::Reaction,
         );
     }
 
     #[test]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "test enumerates many event variants; short names keep the table readable"
+    )]
     fn event_phase_local_decision_for_timer_and_state_mutations() {
         let n = NodeId::new(0);
         let s = signal();
         let f = FrameId::new(0);
         let r = SerializerId::new(0);
+        let seg = SegmentId::new(0);
+        let p = PortId::new(0);
         assert_eq!(
             Event::TxAttempt { node: n, frame: f }.phase(),
             Phase::LocalDecision,
         );
-        assert_eq!(Event::TxStart { node: n, signal: s }.phase(), Phase::LocalDecision);
-        assert_eq!(Event::Enqueue { serializer: r, frame: f }.phase(), Phase::LocalDecision);
-        assert_eq!(Event::Dequeue { serializer: r, frame: f }.phase(), Phase::LocalDecision);
         assert_eq!(
-            Event::BackoffExpire { node: n, attempt: 0 }.phase(),
+            Event::TxStart { node: n, signal: s }.phase(),
+            Phase::LocalDecision
+        );
+        assert_eq!(
+            Event::Enqueue {
+                serializer: r,
+                frame: f
+            }
+            .phase(),
+            Phase::LocalDecision
+        );
+        assert_eq!(
+            Event::Dequeue {
+                serializer: r,
+                frame: f
+            }
+            .phase(),
+            Phase::LocalDecision
+        );
+        assert_eq!(
+            Event::BackoffExpire {
+                node: n,
+                attempt: 0
+            }
+            .phase(),
+            Phase::LocalDecision,
+        );
+        // Topology mutation events (round 10 / continuity) all share
+        // `Phase::LocalDecision` per continuity.md §3.c.
+        assert_eq!(
+            Event::SegmentAdded {
+                segment: seg,
+                kind: SegmentKind::Hd
+            }
+            .phase(),
+            Phase::LocalDecision,
+        );
+        assert_eq!(
+            Event::SegmentRemoved { segment: seg }.phase(),
+            Phase::LocalDecision,
+        );
+        assert_eq!(Event::NodeAdded { node: n }.phase(), Phase::LocalDecision);
+        assert_eq!(Event::NodeRemoved { node: n }.phase(), Phase::LocalDecision);
+        assert_eq!(
+            Event::SegmentDelayChanged {
+                segment: seg,
+                old: BitTime::ZERO,
+                new: BitTime::from_nanos(100)
+            }
+            .phase(),
+            Phase::LocalDecision,
+        );
+        assert_eq!(
+            Event::SegmentRateChanged {
+                segment: seg,
+                old: BitRate::ETHERNET_10M,
+                new: BitRate::ETHERNET_100M
+            }
+            .phase(),
+            Phase::LocalDecision,
+        );
+        assert_eq!(
+            Event::MacConfigChanged { node: n }.phase(),
+            Phase::LocalDecision,
+        );
+        assert_eq!(
+            Event::PortDisconnected {
+                node: n,
+                port: p,
+                segment: seg
+            }
+            .phase(),
+            Phase::LocalDecision,
+        );
+        assert_eq!(
+            Event::SignalLost {
+                signal: s,
+                reason: SignalLostReason::SegmentRemoved
+            }
+            .phase(),
             Phase::LocalDecision,
         );
     }
@@ -475,28 +683,81 @@ mod tests {
 
     #[test]
     fn event_is_exhaustively_matchable_without_wildcard() {
-        // Adding a 13th Event variant without updating this match arm
+        // Adding a new Event variant without updating this match arm
         // would produce a compile error. This is the sealed-enum
         // discipline from design.md §3.c.5.
+        //
+        // Round 7 introduced 12 variants. Round 10a (continuity) added 9
+        // more (8 topology events + 1 SignalLost). Subsequent additions
+        // are deliberate breaking changes.
         let n = NodeId::new(0);
         let p = PortId::new(0);
         let s = signal();
         let f = FrameId::new(0);
         let ser = SerializerId::new(0);
+        let seg = SegmentId::new(0);
 
         let events = [
             Event::TxAttempt { node: n, frame: f },
             Event::TxStart { node: n, signal: s },
             Event::TxEnd { node: n, signal: s },
-            Event::FrontArrive { node: n, port: p, signal: s },
-            Event::BackArrive { node: n, port: p, signal: s },
+            Event::FrontArrive {
+                node: n,
+                port: p,
+                signal: s,
+            },
+            Event::BackArrive {
+                node: n,
+                port: p,
+                signal: s,
+            },
             Event::CollisionDetect { node: n, signal: s },
             Event::JamStart { node: n },
             Event::JamEnd { node: n },
-            Event::FrameEligible { bridge: n, port: p, frame: f },
-            Event::Enqueue { serializer: ser, frame: f },
-            Event::Dequeue { serializer: ser, frame: f },
-            Event::BackoffExpire { node: n, attempt: 0 },
+            Event::FrameEligible {
+                bridge: n,
+                port: p,
+                frame: f,
+            },
+            Event::Enqueue {
+                serializer: ser,
+                frame: f,
+            },
+            Event::Dequeue {
+                serializer: ser,
+                frame: f,
+            },
+            Event::BackoffExpire {
+                node: n,
+                attempt: 0,
+            },
+            Event::SegmentAdded {
+                segment: seg,
+                kind: SegmentKind::Hd,
+            },
+            Event::SegmentRemoved { segment: seg },
+            Event::NodeAdded { node: n },
+            Event::NodeRemoved { node: n },
+            Event::SegmentDelayChanged {
+                segment: seg,
+                old: BitTime::ZERO,
+                new: BitTime::from_nanos(100),
+            },
+            Event::SegmentRateChanged {
+                segment: seg,
+                old: BitRate::ETHERNET_10M,
+                new: BitRate::ETHERNET_100M,
+            },
+            Event::MacConfigChanged { node: n },
+            Event::PortDisconnected {
+                node: n,
+                port: p,
+                segment: seg,
+            },
+            Event::SignalLost {
+                signal: s,
+                reason: SignalLostReason::SegmentRemoved,
+            },
         ];
 
         for ev in events {
@@ -513,6 +774,15 @@ mod tests {
                 Event::Enqueue { .. } => "Enqueue",
                 Event::Dequeue { .. } => "Dequeue",
                 Event::BackoffExpire { .. } => "BackoffExpire",
+                Event::SegmentAdded { .. } => "SegmentAdded",
+                Event::SegmentRemoved { .. } => "SegmentRemoved",
+                Event::NodeAdded { .. } => "NodeAdded",
+                Event::NodeRemoved { .. } => "NodeRemoved",
+                Event::SegmentDelayChanged { .. } => "SegmentDelayChanged",
+                Event::SegmentRateChanged { .. } => "SegmentRateChanged",
+                Event::MacConfigChanged { .. } => "MacConfigChanged",
+                Event::PortDisconnected { .. } => "PortDisconnected",
+                Event::SignalLost { .. } => "SignalLost",
             };
             assert!(!label.is_empty());
         }
@@ -542,17 +812,13 @@ mod tests {
     #[test]
     fn event_key_time_dominates_phase() {
         // Earlier time wins regardless of phase.
-        assert!(
-            key(100, Phase::LocalDecision, 999) < key(200, Phase::Release, 0),
-        );
+        assert!(key(100, Phase::LocalDecision, 999) < key(200, Phase::Release, 0),);
     }
 
     #[test]
     fn event_key_phase_dominates_serial_id() {
         // Same time, different phase: phase decides regardless of serial.
-        assert!(
-            key(100, Phase::Release, 999) < key(100, Phase::Assertion, 0),
-        );
+        assert!(key(100, Phase::Release, 999) < key(100, Phase::Assertion, 0),);
     }
 
     #[test]

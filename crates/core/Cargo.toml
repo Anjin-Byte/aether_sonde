@@ -16,4 +16,7 @@ workspace = true
 # Pure core. No runtime dependencies.
 
 [dev-dependencies]
-# Test-only dependencies will be added as the test surface grows.
+# Property-based testing for invariants and high-input-space differential
+# checks per the codex's `Edge Cases and Properties` and `Evidence Ladder
+# for Testing` notes. Used only in `tests/properties.rs`.
+proptest = "1"
