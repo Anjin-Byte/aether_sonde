@@ -6,6 +6,8 @@ A simulator for Ethernet networks. It models how signals travel between
 stations, how collisions form on shared wires, and how bridges relay
 frames across separate links.
 
+Put differently, I am trying to build out a general simulation of the MAC (Media Access Control) data-link sublayer. This is not a simulation of the physical medium or the signals that propagate through them. I do simulate the latency associated with sending information because it helps explain certain characteristics of data-link design decisions. i.e. CSMA/CD. I am also of the opinion that a good enough simulation of classic ethernet could support later network and transport additions (though I have no plans for anything beyond the conceptual basics)
+
 ## Status
 
 Early. The core handles half-duplex, full-duplex, and bridged topologies.
