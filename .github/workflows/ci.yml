@@ -12,6 +12,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Opt JavaScript actions into Node 24 ahead of the June 2026 default
+  # switch. Suppresses the Node 20 deprecation warning. Remove this
+  # once all pinned actions ship Node 24-native versions.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   verify:
