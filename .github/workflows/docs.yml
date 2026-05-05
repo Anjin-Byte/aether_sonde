@@ -48,6 +48,11 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          # Enable Pages via the API on first run if it isn't enabled
+          # already. The job already has `pages: write`. After the first
+          # successful run, this is a no-op.
+          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
