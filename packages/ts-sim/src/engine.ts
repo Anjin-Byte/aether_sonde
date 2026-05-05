@@ -4,6 +4,10 @@
 import { Engine as RawEngine } from "aether-sonde-wasm";
 import { TypedWorld } from "./builder.js";
 import {
+  type DeviceCommand,
+  type DeviceCommandError,
+  DeviceCommandErrorE,
+  type DeviceSnapshot,
   type Edit,
   type EditError,
   EditErrorE,
@@ -26,6 +30,16 @@ function asEngineError(e: unknown): EngineErrorE {
     return new EngineErrorE(e as EngineError);
   }
   return new EngineErrorE({ kind: "ZeroBitFrame" });
+}
+
+function asDeviceCommandError(e: unknown): DeviceCommandErrorE {
+  if (typeof e === "object" && e !== null && "kind" in e) {
+    return new DeviceCommandErrorE(e as DeviceCommandError);
+  }
+  return new DeviceCommandErrorE({
+    kind: "InvalidArgument",
+    reason: String(e),
+  });
 }
 
 /**
@@ -112,6 +126,30 @@ export class TypedEngine implements Disposable {
    */
   logSnapshot(): LogSnapshot {
     return this.inner.log() as LogSnapshot;
+  }
+
+  /**
+   * Typed snapshot of `node`'s link-layer device state, or `null`
+   * if `node` is unknown. The returned object is a discriminated
+   * union tagged by `type` — pattern-match to access per-device
+   * fields.
+   */
+  deviceSnapshot(node: number): DeviceSnapshot | null {
+    const raw = this.inner.deviceSnapshot(node);
+    return raw === null || raw === undefined ? null : (raw as DeviceSnapshot);
+  }
+
+  /**
+   * Apply a typed `DeviceCommand` mid-simulation. Throws
+   * `DeviceCommandErrorE` on validation failure; consumers narrow
+   * on `.inner.kind`.
+   */
+  applyDeviceCommand(cmd: DeviceCommand): void {
+    try {
+      this.inner.applyDeviceCommand(cmd);
+    } catch (e: unknown) {
+      throw asDeviceCommandError(e);
+    }
   }
 
   dispose(): void {

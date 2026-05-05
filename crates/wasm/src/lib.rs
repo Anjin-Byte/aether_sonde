@@ -116,6 +116,30 @@ impl TopologyBuilder {
             .as_u32()
     }
 
+    /// Append a learning-switch node. `mac_table_capacity == 0` is
+    /// unbounded; `aging_threshold_ps == 0` disables aging.
+    #[wasm_bindgen(js_name = addSwitch)]
+    pub fn add_switch(
+        &mut self,
+        port_count: u32,
+        decode_threshold_bits: u64,
+        processing_delay_ps: u64,
+        mac_table_capacity: u32,
+        aging_threshold_ps: u64,
+    ) -> u32 {
+        self.0
+            .add_switch(
+                port_count,
+                core_topology::SwitchData {
+                    decode_threshold: Bits::new(decode_threshold_bits),
+                    processing_delay: BitTime::new(processing_delay_ps),
+                    mac_table_capacity,
+                    aging_threshold: BitTime::new(aging_threshold_ps),
+                },
+            )
+            .as_u32()
+    }
+
     /// Append an HD shared-medium segment between
     /// `(a_node, a_port)` and `(b_node, b_port)`. Throws a `BuildError`
     /// JS object on failure.
@@ -303,6 +327,28 @@ impl Engine {
     /// Snapshot the engine's event log as a JS array.
     pub fn log(&self) -> Result<JsValue, JsValue> {
         to_js(self.0.log())
+    }
+
+    /// Typed snapshot of `node`'s link-layer device state. Returns
+    /// `null` if `node` is unknown. The returned JS object is a
+    /// discriminated union tagged by `type` (`EndStation`, `Repeater`,
+    /// `Bridge`, `Switch`).
+    #[wasm_bindgen(js_name = deviceSnapshot)]
+    pub fn device_snapshot(&self, node: u32) -> Result<JsValue, JsValue> {
+        match self.0.device_snapshot(NodeId::new(node)) {
+            Some(snap) => to_js(&snap),
+            None => Ok(JsValue::NULL),
+        }
+    }
+
+    /// Apply a typed `DeviceCommand`. The `cmd` argument is a JS
+    /// object matching the `DeviceCommand` discriminated-union schema
+    /// (with `type` field). Throws a `DeviceCommandError` JS object
+    /// on failure (with `kind` field).
+    #[wasm_bindgen(js_name = applyDeviceCommand)]
+    pub fn apply_device_command(&mut self, cmd: JsValue) -> Result<(), JsValue> {
+        let cmd: aether_sonde::device::DeviceCommand = from_js(cmd)?;
+        self.0.apply_device_command(cmd).map_err(|e| err_to_js(&e))
     }
 }
 

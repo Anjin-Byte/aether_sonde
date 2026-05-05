@@ -46,11 +46,20 @@ export interface Endpoint {
 // Node kinds (Rust externally-tagged enum: tuple variants → { Variant: data })
 // ---------------------------------------------------------------------------
 
+/** Static configuration for a learning switch. Mirrors `aether_sonde::topology::SwitchData`. */
+export interface SwitchData {
+  decode_threshold: bigint;
+  processing_delay: bigint;
+  mac_table_capacity: number;
+  aging_threshold: bigint;
+}
+
 // EndStationData is a unit struct → null
 export type NodeKind =
   | { EndStation: Record<string, never> }
   | { Repeater: { delta_h: bigint } }
-  | { Bridge: { decode_threshold: bigint; processing_delay: bigint } };
+  | { Bridge: { decode_threshold: bigint; processing_delay: bigint } }
+  | { Switch: SwitchData };
 
 // ---------------------------------------------------------------------------
 // MAC / Backoff / Jam / IFG policies
@@ -94,6 +103,11 @@ export type Edit =
       port_count: number;
       decode_threshold: bigint;
       processing_delay: bigint;
+    }
+  | {
+      type: "AddSwitch";
+      port_count: number;
+      data: SwitchData;
     }
   | {
       type: "AddHdSegment";
@@ -161,7 +175,9 @@ export type Event =
       port: number;
       segment: number;
     }
-  | { type: "SignalLost"; signal: Signal; reason: SignalLostReason };
+  | { type: "SignalLost"; signal: Signal; reason: SignalLostReason }
+  | { type: "DeviceCommandApplied"; node: number }
+  | { type: "AgingTick"; node: number };
 
 // ---------------------------------------------------------------------------
 // LoggedEvent / Log
@@ -235,5 +251,131 @@ export class EngineErrorE extends Error {
   override readonly name = "EngineErrorE";
   constructor(readonly inner: EngineError) {
     super(`EngineError: ${inner.kind}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Frame structure (Round 4)
+// ---------------------------------------------------------------------------
+
+/** IEEE 802 MAC address — six octets. Mirrors `aether_sonde::frame::MacAddress`. */
+export type MacAddress = readonly [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+];
+
+/** IEEE 802.3 EtherType / length field. */
+export type EtherType = number;
+
+/** 802.1Q VLAN tag. */
+export interface VlanTag {
+  priority: number;
+  drop_eligible: boolean;
+  vid: number;
+}
+
+/** Frame payload (sealed; round 4 has only `Opaque`). */
+export interface FramePayload {
+  type: "Opaque";
+  bits: bigint;
+}
+
+/** Ethernet II / 802.3 / 802.1Q frame at MAC-layer granularity. */
+export interface Frame {
+  destination: MacAddress;
+  source: MacAddress;
+  ethertype: EtherType;
+  vlan: VlanTag | null;
+  payload: FramePayload;
+}
+
+// ---------------------------------------------------------------------------
+// Device snapshots (Round 4 — `Engine::deviceSnapshot`)
+// ---------------------------------------------------------------------------
+
+/** How a forwarding-table entry entered the table. */
+export type MacEntryOrigin = "Learned" | "ManualInsert";
+
+/** One entry in a learning device's forwarding table. */
+export interface MacTableEntry {
+  mac: MacAddress;
+  port: number;
+  learned_at: bigint;
+  origin: MacEntryOrigin;
+}
+
+export interface EndStationSnapshot {
+  port_count: number;
+}
+
+export interface RepeaterSnapshot {
+  port_count: number;
+  delta_h: bigint;
+}
+
+export interface BridgeSnapshot {
+  decode_threshold_bits: bigint;
+  processing_delay: bigint;
+  egress_queue_depth: readonly (readonly [number, number])[];
+  egress_busy: readonly (readonly [number, boolean])[];
+}
+
+export interface SwitchSnapshot {
+  decode_threshold_bits: bigint;
+  processing_delay: bigint;
+  aging_threshold: bigint;
+  mac_table: readonly MacTableEntry[];
+  egress_queue_depth: readonly (readonly [number, number])[];
+  egress_busy: readonly (readonly [number, boolean])[];
+}
+
+/**
+ * Typed snapshot of a node's link-layer device state. Returned by
+ * `TypedEngine.deviceSnapshot`. Discriminated by `type`.
+ */
+export type DeviceSnapshot =
+  | ({ type: "EndStation" } & EndStationSnapshot)
+  | ({ type: "Repeater" } & RepeaterSnapshot)
+  | ({ type: "Bridge" } & BridgeSnapshot)
+  | ({ type: "Switch" } & SwitchSnapshot);
+
+// ---------------------------------------------------------------------------
+// Device commands (Round 4 — `Engine::applyDeviceCommand`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mid-simulation mutation of a device's internal state. Distinct
+ * from `Edit`, which mutates topology. Discriminated by `type`.
+ */
+export type DeviceCommand =
+  | {
+      type: "InsertMacEntry";
+      node: number;
+      mac: MacAddress;
+      port: number;
+    }
+  | { type: "RemoveMacEntry"; node: number; mac: MacAddress }
+  | { type: "FlushMacTable"; node: number }
+  | {
+      type: "SetSwitchAgingThreshold";
+      node: number;
+      threshold: bigint;
+    };
+
+/** Errors returned by `TypedEngine.applyDeviceCommand`. */
+export type DeviceCommandError =
+  | { kind: "UnknownNode"; node: number }
+  | { kind: "NotApplicable"; reason: string }
+  | { kind: "InvalidArgument"; reason: string };
+
+/** Thrown by `TypedEngine.applyDeviceCommand` on validation failure. */
+export class DeviceCommandErrorE extends Error {
+  override readonly name = "DeviceCommandErrorE";
+  constructor(readonly inner: DeviceCommandError) {
+    super(`DeviceCommandError: ${inner.kind}`);
   }
 }

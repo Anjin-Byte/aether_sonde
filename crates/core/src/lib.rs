@@ -32,8 +32,10 @@
 //!   `collision_detect`, `first_collision_detect_at`, `receive_complete`.
 
 pub mod bridge;
+pub mod device;
 pub mod engine;
 pub mod event;
+pub mod frame;
 pub mod observe;
 pub mod policy;
 pub mod resource;

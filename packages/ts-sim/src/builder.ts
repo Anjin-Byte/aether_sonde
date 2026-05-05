@@ -53,6 +53,29 @@ export class TypedTopologyBuilder implements Disposable {
     return this.inner.addBridge(portCount, decodeThreshold, processingDelay);
   }
 
+  /**
+   * Append a learning switch.
+   *
+   * `decodeThreshold` in bits; `processingDelay` and `agingThresholdPs`
+   * in picoseconds. `macTableCapacity == 0` means unbounded;
+   * `agingThresholdPs == 0n` disables aging.
+   */
+  addSwitch(
+    portCount: number,
+    decodeThreshold: bigint,
+    processingDelay: bigint,
+    macTableCapacity: number,
+    agingThresholdPs: bigint,
+  ): number {
+    return this.inner.addSwitch(
+      portCount,
+      decodeThreshold,
+      processingDelay,
+      macTableCapacity,
+      agingThresholdPs,
+    );
+  }
+
   /** Append an HD segment. Throws `BuildErrorE` on failure. */
   addHdSegment(
     rateBps: bigint,

@@ -137,6 +137,10 @@ describe("Event union exhaustiveness (compile-time check)", () => {
           return "port-disconnected";
         case "SignalLost":
           return "signal-lost";
+        case "DeviceCommandApplied":
+          return "device-command-applied";
+        case "AgingTick":
+          return "aging-tick";
         default: {
           const _exhaustive: never = e;
           return _exhaustive;

@@ -44,10 +44,29 @@ export {
   type BackoffPolicy,
   type JamPolicy,
   type IfgPolicy,
+  // Frame types (Round 4)
+  type Frame,
+  type FramePayload,
+  type EtherType,
+  type MacAddress,
+  type VlanTag,
+  // Device snapshot types (Round 4)
+  type DeviceSnapshot,
+  type EndStationSnapshot,
+  type RepeaterSnapshot,
+  type BridgeSnapshot,
+  type SwitchSnapshot,
+  type SwitchData,
+  type MacTableEntry,
+  type MacEntryOrigin,
+  // Device command types (Round 4)
+  type DeviceCommand,
+  type DeviceCommandError,
   // Constants
   MAC_CONFIG_IEEE_802_3,
   // Error wrapper classes
   EditErrorE,
   BuildErrorE,
   EngineErrorE,
+  DeviceCommandErrorE,
 } from "./types.js";

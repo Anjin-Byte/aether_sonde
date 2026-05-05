@@ -306,6 +306,25 @@ pub enum Event {
         /// Why the signal was lost.
         reason: SignalLostReason,
     },
+
+    /// A [`crate::device::DeviceCommand`] was successfully applied
+    /// to a device's runtime state. Round 4 introduced typed
+    /// device-state edits; this event records each application so
+    /// the determinism contract extends to commands.
+    DeviceCommandApplied {
+        /// The device the command targeted.
+        node: NodeId,
+    },
+
+    /// A periodic aging-tick fired on a device whose runtime
+    /// schedules them (round 4: switches with a non-zero aging
+    /// threshold). Each tick gives the device a chance to expire
+    /// stale state (MAC-table entries) and to schedule the next
+    /// tick.
+    AgingTick {
+        /// The device whose aging hook ran.
+        node: NodeId,
+    },
 }
 
 /// The cause of a [`Event::SignalLost`] event.
@@ -364,7 +383,9 @@ impl Event {
             | Event::SegmentRateChanged { .. }
             | Event::MacConfigChanged { .. }
             | Event::PortDisconnected { .. }
-            | Event::SignalLost { .. } => Phase::LocalDecision,
+            | Event::SignalLost { .. }
+            | Event::DeviceCommandApplied { .. }
+            | Event::AgingTick { .. } => Phase::LocalDecision,
         }
     }
 }
@@ -789,6 +810,8 @@ mod tests {
                 Event::MacConfigChanged { .. } => "MacConfigChanged",
                 Event::PortDisconnected { .. } => "PortDisconnected",
                 Event::SignalLost { .. } => "SignalLost",
+                Event::DeviceCommandApplied { .. } => "DeviceCommandApplied",
+                Event::AgingTick { .. } => "AgingTick",
             };
             assert!(!label.is_empty());
         }

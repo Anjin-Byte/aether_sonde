@@ -19,13 +19,13 @@
 //! Bridges are HD leaves: the BFS records the delay to a bridge port but
 //! does not propagate beyond it — bridges have no internal HD arc.
 
-use crate::bridge::{FloodForwarding, Forwarding, frame_eligibility_time};
+use crate::bridge::frame_eligibility_time;
 use crate::event::{Event, EventKey, FrameId, Log, Phase, SignalLostReason};
 use crate::policy::{BackoffPolicy, IfgPolicy, JamPolicy};
 use crate::resource::SerializerId;
 use crate::signal::{NodeId, Signal, SignalKind};
 use crate::time::{BitRate, BitTime, Bits};
-use crate::topology::{BridgeData, NodeKind, PortId, RepeaterData, SegmentId, SegmentKind, World};
+use crate::topology::{NodeKind, PortId, RepeaterData, SegmentId, SegmentKind, World};
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
@@ -80,12 +80,25 @@ impl Default for MacConfig {
 // ===========================================================================
 
 /// Engine-private record for a registered frame.
+///
+/// Round 4 onward, `frame` carries the full Ethernet semantics
+/// (destination/source MAC, ethertype, VLAN, payload). The
+/// `bits` accessor returns `frame.wire_length()` so existing
+/// engine code that derives signal duration from the bit count
+/// keeps working unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FrameMetadata {
     source: NodeId,
-    bits: Bits,
+    frame: crate::frame::Frame,
     kind: SignalKind,
     rate: BitRate,
+}
+
+impl FrameMetadata {
+    /// Wire length of the registered frame in bits.
+    fn bits(&self) -> Bits {
+        self.frame.wire_length()
+    }
 }
 
 // ===========================================================================
@@ -155,13 +168,6 @@ struct BridgeEgressReach {
     rate: BitRate,
     /// Each peer reachable via this port: `(peer_node, delay, peer_port)`.
     peers: Vec<(NodeId, BitTime, PortId)>,
-}
-
-/// Per-bridge runtime state: per-port egress queue and per-port busy flag.
-#[derive(Debug, Clone, Default)]
-struct BridgeRuntimeState {
-    egress_queues: HashMap<PortId, VecDeque<FrameId>>,
-    egress_busy: HashMap<PortId, bool>,
 }
 
 // ===========================================================================
@@ -293,6 +299,14 @@ pub enum Edit {
         decode_threshold: Bits,
         /// Processing delay `π_b`.
         processing_delay: BitTime,
+    },
+    /// Add a new learning-switch node. (Round 4.)
+    AddSwitch {
+        /// Number of ports on the new switch.
+        port_count: u32,
+        /// Switch configuration: decode threshold, processing delay,
+        /// MAC-table capacity, and aging threshold.
+        data: crate::topology::SwitchData,
     },
     /// Add a new HD shared-medium segment between two endpoints.
     /// (Round 10b.)
@@ -455,8 +469,12 @@ pub struct Engine {
     /// Bridge egress reachability per (bridge node, port).
     bridge_egress_reach: HashMap<(NodeId, PortId), BridgeEgressReach>,
 
-    /// Per-bridge runtime queue and busy state.
-    bridge_state: HashMap<NodeId, BridgeRuntimeState>,
+    /// Per-node device runtime state. Stateful link-layer device
+    /// families (bridges in round 4; switches in round 6) appear
+    /// here as `DeviceRuntime` variants. Stateless devices
+    /// (end stations, repeaters) carry no entry; their snapshots are
+    /// computed from `world` at query time.
+    devices: HashMap<NodeId, crate::device::DeviceRuntime>,
 
     /// Side map: when a bridge schedules a `TxStart`, record which port
     /// it's emitting on so the handler can look up reachability.
@@ -528,6 +546,31 @@ impl Engine {
         let hd_pair_reachability = precompute_hd_pair_reachability(&world);
         let fd_attachments = precompute_fd_attachments(&world);
         let bridge_egress_reach = precompute_bridge_egress_reach(&world, &hd_pair_reachability);
+        // Populate device runtimes for every stateful node already in
+        // the world (bridges added via `TopologyBuilder`). Future
+        // device families append to this match arm.
+        let mut devices: HashMap<NodeId, crate::device::DeviceRuntime> = HashMap::new();
+        for (node_id, kind) in world.nodes() {
+            match kind {
+                NodeKind::Bridge(_) => {
+                    devices.insert(
+                        node_id,
+                        crate::device::DeviceRuntime::Bridge(
+                            crate::device::bridge::BridgeRuntime::default(),
+                        ),
+                    );
+                }
+                NodeKind::Switch(data) => {
+                    devices.insert(
+                        node_id,
+                        crate::device::DeviceRuntime::Switch(
+                            crate::device::switch::SwitchRuntime::new(*data),
+                        ),
+                    );
+                }
+                NodeKind::EndStation(_) | NodeKind::Repeater(_) => {}
+            }
+        }
         Self {
             world,
             queue: BinaryHeap::new(),
@@ -540,7 +583,7 @@ impl Engine {
             hd_pair_reachability,
             fd_attachments,
             bridge_egress_reach,
-            bridge_state: HashMap::new(),
+            devices,
             bridge_pending_egress: HashMap::new(),
             node_state: HashMap::new(),
             foreign_carriers: HashMap::new(),
@@ -608,6 +651,7 @@ impl Engine {
                 decode_threshold,
                 processing_delay,
             } => self.do_add_bridge(port_count, decode_threshold, processing_delay),
+            Edit::AddSwitch { port_count, data } => self.do_add_switch(port_count, data),
             Edit::SetMacConfig { node, config } => self.do_set_mac_config(node, config),
             Edit::AddHdSegment { rate, delay, a, b } => self.do_add_hd_segment(rate, delay, a, b),
             Edit::AddFdSegment { rate, delay, a, b } => self.do_add_fd_segment(rate, delay, a, b),
@@ -621,6 +665,59 @@ impl Engine {
                 self.do_set_segment_rate(segment, new_rate)
             }
         }
+    }
+
+    /// Apply a typed [`crate::device::DeviceCommand`] mid-simulation.
+    ///
+    /// `DeviceCommand` is the write-side counterpart to
+    /// [`crate::device::DeviceSnapshot`]: it mutates a device's
+    /// internal state (forwarding-table entries, configuration
+    /// knobs) without touching topology. Topology mutation goes
+    /// through [`Engine::apply_edit`].
+    ///
+    /// On success, schedules a
+    /// [`Event::DeviceCommandApplied`] log entry at the engine's
+    /// last-processed time in the `LocalDecision` phase — so the
+    /// determinism contract extends to commands:
+    /// `(spec, seed, schedule, edits, commands)` produces a
+    /// byte-identical log.
+    ///
+    /// # Errors
+    ///
+    /// - [`crate::device::DeviceCommandError::UnknownNode`] if
+    ///   `cmd.target_node()` does not exist in the current world.
+    /// - [`crate::device::DeviceCommandError::NotApplicable`] if
+    ///   the variant does not apply to the target device's kind
+    ///   (e.g., `InsertMacEntry` on a flooding bridge).
+    /// - [`crate::device::DeviceCommandError::InvalidArgument`] for
+    ///   per-device argument validation failures.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "owned-value entry mirrors `apply_edit`; future variants may carry non-Copy payloads"
+    )]
+    pub fn apply_device_command(
+        &mut self,
+        cmd: crate::device::DeviceCommand,
+    ) -> Result<(), crate::device::DeviceCommandError> {
+        let node = cmd.target_node();
+        if self.world.node(node).is_none() {
+            return Err(crate::device::DeviceCommandError::UnknownNode { node });
+        }
+        let Some(mut runtime) = self.devices.remove(&node) else {
+            return Err(crate::device::DeviceCommandError::NotApplicable {
+                reason: "target node has no device runtime",
+            });
+        };
+        let outcome = runtime.apply_command(&cmd);
+        self.devices.insert(node, runtime);
+        outcome?;
+        let now = self.last_processed_time;
+        self.schedule(
+            now,
+            Phase::LocalDecision,
+            Event::DeviceCommandApplied { node },
+        );
+        Ok(())
     }
 
     // Round 10a's add-node handlers are infallible. They keep the
@@ -663,6 +760,29 @@ impl Engine {
         let node = self
             .world
             .push_bridge(port_count, decode_threshold, processing_delay);
+        self.devices.insert(
+            node,
+            crate::device::DeviceRuntime::Bridge(crate::device::bridge::BridgeRuntime::default()),
+        );
+        let now = self.last_processed_time;
+        self.schedule(now, Phase::LocalDecision, Event::NodeAdded { node });
+        Ok(())
+    }
+
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "uniform Result return matches sibling handlers that are fallible in round 10b/c"
+    )]
+    fn do_add_switch(
+        &mut self,
+        port_count: u32,
+        data: crate::topology::SwitchData,
+    ) -> Result<(), EditError> {
+        let node = self.world.push_switch(port_count, data);
+        self.devices.insert(
+            node,
+            crate::device::DeviceRuntime::Switch(crate::device::switch::SwitchRuntime::new(data)),
+        );
         let now = self.last_processed_time;
         self.schedule(now, Phase::LocalDecision, Event::NodeAdded { node });
         Ok(())
@@ -880,7 +1000,7 @@ impl Engine {
         self.node_state.remove(&node);
         self.foreign_carriers.remove(&node);
         self.pending_frames.remove(&node);
-        self.bridge_state.remove(&node);
+        self.devices.remove(&node);
         self.bridge_pending_egress
             .retain(|(n, signal), _| *n != node && signal.source() != node);
         self.fd_attachments.remove(&node);
@@ -1008,7 +1128,10 @@ impl Engine {
         Ok(())
     }
 
-    /// Register a frame. The returned [`FrameId`] can be passed to
+    /// Register a frame by wire-length only. Constructs an opaque
+    /// [`crate::frame::Frame`] internally — backwards-compatible with
+    /// callers that don't model MAC addresses or payloads. The
+    /// returned [`FrameId`] can be passed to
     /// [`Engine::schedule_tx_attempt`].
     ///
     /// # Errors
@@ -1021,7 +1144,26 @@ impl Engine {
         kind: SignalKind,
         rate: BitRate,
     ) -> Result<FrameId, EngineError> {
-        if bits.as_u64() == 0 {
+        self.register_frame_with(source, crate::frame::Frame::opaque(bits), kind, rate)
+    }
+
+    /// Register a frame with an explicit [`crate::frame::Frame`]. Use
+    /// this when MAC addresses, ethertype, VLAN tag, or payload
+    /// matter to the device receiving the frame (e.g., a learning
+    /// switch).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::ZeroBitFrame`] if the frame's
+    /// [`crate::frame::Frame::wire_length`] is zero.
+    pub fn register_frame_with(
+        &mut self,
+        source: NodeId,
+        frame: crate::frame::Frame,
+        kind: SignalKind,
+        rate: BitRate,
+    ) -> Result<FrameId, EngineError> {
+        if frame.wire_length().as_u64() == 0 {
             return Err(EngineError::ZeroBitFrame);
         }
         let id = FrameId::new(self.next_frame_id);
@@ -1030,12 +1172,21 @@ impl Engine {
             id,
             FrameMetadata {
                 source,
-                bits,
+                frame,
                 kind,
                 rate,
             },
         );
         Ok(id)
+    }
+
+    /// Look up the registered [`crate::frame::Frame`] for a previously
+    /// registered [`FrameId`]. Returns `None` if the id is unknown.
+    /// Used by link-layer device runtimes to read frame headers when
+    /// forwarding.
+    #[must_use]
+    pub fn registered_frame(&self, frame: FrameId) -> Option<&crate::frame::Frame> {
+        self.frames.get(&frame).map(|meta| &meta.frame)
     }
 
     /// Schedule a `TxAttempt` for the given `(node, frame)` at `time`.
@@ -1075,6 +1226,60 @@ impl Engine {
             .unwrap_or(NodeRuntimeState::Idle)
     }
 
+    /// A typed snapshot of `node`'s link-layer device state.
+    ///
+    /// Returns `None` for unknown nodes. For known nodes, the
+    /// returned variant is determined by the node's
+    /// [`crate::topology::NodeKind`]:
+    ///
+    /// - Stateful devices (bridges; switches in round 6) dispatch
+    ///   through their crate-private `LinkLayerBehavior` impl for
+    ///   the runtime view (queue depths, busy flags, MAC tables).
+    /// - Stateless devices (end stations, repeaters) return a
+    ///   snapshot computed from [`World`] state at query time.
+    ///
+    /// The snapshot is a pure-function read: calling it has no side
+    /// effects, schedules no events, and produces no log entries.
+    #[must_use]
+    pub fn device_snapshot(&self, node: NodeId) -> Option<crate::device::DeviceSnapshot> {
+        let kind = self.world.node(node)?;
+        let port_count = self.world.port_count_of(node).unwrap_or(0);
+        match kind {
+            NodeKind::EndStation(_) => Some(crate::device::DeviceSnapshot::EndStation(
+                crate::device::EndStationSnapshot { port_count },
+            )),
+            NodeKind::Repeater(crate::topology::RepeaterData { delta_h }) => {
+                Some(crate::device::DeviceSnapshot::Repeater(
+                    crate::device::RepeaterSnapshot {
+                        port_count,
+                        delta_h: *delta_h,
+                    },
+                ))
+            }
+            NodeKind::Bridge(_) | NodeKind::Switch(_) => {
+                self.devices.get(&node).map(|r| r.snapshot(self, node))
+            }
+        }
+    }
+
+    /// Current dispatch time. While a hook is running, this is the
+    /// time of the event that triggered it. Used by device-runtime
+    /// hook impls to schedule follow-up events at the same instant
+    /// or after a delay.
+    #[must_use]
+    pub(crate) fn now(&self) -> BitTime {
+        self.last_processed_time
+    }
+
+    /// The rate of the segment connected to bridge `node` at egress
+    /// `port`, or `None` if the port has no bridge-egress reach
+    /// record. Used by device-runtime hook impls to compute
+    /// inter-frame-gap durations.
+    #[must_use]
+    pub(crate) fn bridge_egress_rate(&self, node: NodeId, port: PortId) -> Option<BitRate> {
+        self.bridge_egress_reach.get(&(node, port)).map(|r| r.rate)
+    }
+
     // -- Scheduler internals -------------------------------------------------
 
     fn next_serial(&mut self) -> u64 {
@@ -1083,7 +1288,7 @@ impl Engine {
         s
     }
 
-    fn schedule(&mut self, time: BitTime, phase: Phase, event: Event) {
+    pub(crate) fn schedule(&mut self, time: BitTime, phase: Phase, event: Event) {
         let key = EventKey {
             time,
             phase,
@@ -1165,6 +1370,9 @@ impl Engine {
             Event::Dequeue { serializer, frame } => {
                 self.handle_dequeue(now, serializer, frame);
             }
+            Event::AgingTick { node } => {
+                self.handle_aging_tick(node);
+            }
             // Topology mutation events are recorded in the log by the
             // dispatch loop above and have no further behavior at dispatch
             // time. Their effect on state happens inside `apply_edit`
@@ -1178,8 +1386,18 @@ impl Engine {
             | Event::SegmentRateChanged { .. }
             | Event::MacConfigChanged { .. }
             | Event::PortDisconnected { .. }
-            | Event::SignalLost { .. } => {}
+            | Event::SignalLost { .. }
+            | Event::DeviceCommandApplied { .. } => {}
         }
+    }
+
+    fn handle_aging_tick(&mut self, node: NodeId) {
+        // Take-and-reinsert dispatch through the device runtime.
+        let Some(mut runtime) = self.devices.remove(&node) else {
+            return;
+        };
+        runtime.on_aging_tick(self, node);
+        self.devices.insert(node, runtime);
     }
 
     // -- Handlers ------------------------------------------------------------
@@ -1229,8 +1447,8 @@ impl Engine {
             return; // unknown frame; drop silently
         };
         let signal_result = match meta.kind {
-            SignalKind::Frame => Signal::frame(node, now, meta.bits, meta.rate),
-            SignalKind::Jam => Signal::jam(node, now, meta.bits, meta.rate),
+            SignalKind::Frame => Signal::frame(node, now, meta.bits(), meta.rate),
+            SignalKind::Jam => Signal::jam(node, now, meta.bits(), meta.rate),
         };
         let Ok(signal) = signal_result else {
             return;
@@ -1248,7 +1466,7 @@ impl Engine {
 
         // Bridge source: use bridge_egress_reach for the egress port the
         // bridge is currently transmitting on.
-        if matches!(self.world.node(source), Some(NodeKind::Bridge(_))) {
+        if self.world.node(source).is_some_and(NodeKind::is_l2_relay) {
             let Some(port) = self.bridge_pending_egress.get(&(source, signal)).copied() else {
                 return; // shouldn't happen — handle_dequeue sets this
             };
@@ -1375,36 +1593,17 @@ impl Engine {
         );
     }
 
-    fn handle_tx_end(&mut self, now: BitTime, source: NodeId, signal: Signal) {
-        // Bridge source: free up the egress port and schedule the next
-        // dequeue if anything is queued.
-        if matches!(self.world.node(source), Some(NodeKind::Bridge(_))) {
-            if let Some(port) = self.bridge_pending_egress.remove(&(source, signal)) {
-                if let Some(runtime) = self.bridge_state.get_mut(&source) {
-                    runtime.egress_busy.insert(port, false);
-                    let next_frame = runtime
-                        .egress_queues
-                        .get(&port)
-                        .and_then(|q| q.front().copied());
-                    if let Some(next_frame) = next_frame
-                        && let Some(serializer) = self.world.bridge_egress_serializer(source, port)
-                    {
-                        let mac = self.mac_config(source);
-                        let rate = self
-                            .bridge_egress_reach
-                            .get(&(source, port))
-                            .map_or(BitRate::ETHERNET_10M, |r| r.rate);
-                        let ifg = mac.ifg.duration_at(rate);
-                        self.schedule(
-                            now + ifg,
-                            Phase::LocalDecision,
-                            Event::Dequeue {
-                                serializer,
-                                frame: next_frame,
-                            },
-                        );
-                    }
-                }
+    fn handle_tx_end(&mut self, _now: BitTime, source: NodeId, signal: Signal) {
+        // Bridge source: route to `on_egress_idle` via take-and-reinsert
+        // dispatch through `DeviceRuntime`. The hook frees the egress
+        // busy flag and, if a next frame is queued, schedules its
+        // `Dequeue` after the inter-frame gap.
+        if self.world.node(source).is_some_and(NodeKind::is_l2_relay) {
+            if let Some(port) = self.bridge_pending_egress.remove(&(source, signal))
+                && let Some(mut runtime) = self.devices.remove(&source)
+            {
+                runtime.on_egress_idle(self, source, port);
+                self.devices.insert(source, runtime);
             }
             return;
         }
@@ -1440,23 +1639,28 @@ impl Engine {
             return;
         }
 
-        // Bridge-receiver path: schedule FrameEligible. Per Axiom A4, the
-        // bridge has no internal HD arc, so no carrier-sense or collision
-        // tracking is performed at the bridge.
-        if let Some(NodeKind::Bridge(BridgeData {
-            decode_threshold,
-            processing_delay,
-        })) = self.world.node(node).copied()
+        // L2-relay receiver path (bridge or switch): schedule
+        // FrameEligible. Per Axiom A4, an L2 relay has no internal HD
+        // arc, so no carrier-sense or collision tracking is performed
+        // at the relay.
+        if let Some((decode_threshold, processing_delay)) =
+            self.world.node(node).and_then(NodeKind::decode_params)
         {
             let ingress_rate = self
                 .segment_rate_at(node, port)
                 .unwrap_or(BitRate::ETHERNET_10M);
             let bits = Self::signal_bits_at_rate(signal, ingress_rate);
-            // Register a relay frame to forward. Use the ingress rate for
-            // both the metadata and the eventual egress-side signal
-            // construction (round 8d assumes uniform rate across the
-            // bridge for a given relay; round 8e+ may extend).
-            let Ok(relay_frame) = self.register_frame(node, bits, SignalKind::Frame, ingress_rate)
+            // Carry the source's full Frame (with MAC headers) into
+            // the relay so learning-capable devices (Switch) can read
+            // them. Falls back to an opaque relay if the source
+            // frame can't be located.
+            let relay_payload = self
+                .pending_frames
+                .get(&signal.source())
+                .and_then(|fid| self.frames.get(fid).map(|m| m.frame))
+                .unwrap_or_else(|| crate::frame::Frame::opaque(bits));
+            let Ok(relay_frame) =
+                self.register_frame_with(node, relay_payload, SignalKind::Frame, ingress_rate)
             else {
                 return;
             };
@@ -1497,7 +1701,7 @@ impl Engine {
             return;
         }
         // Bridge or FD receiver: no carrier tracking.
-        if matches!(self.world.node(node), Some(NodeKind::Bridge(_)))
+        if self.world.node(node).is_some_and(NodeKind::is_l2_relay)
             || matches!(self.port_segment_kind(node, port), Some(SegmentKind::Fd))
         {
             return;
@@ -1590,36 +1794,30 @@ impl Engine {
 
     fn handle_frame_eligible(
         &mut self,
-        now: BitTime,
+        _now: BitTime,
         bridge: NodeId,
         ingress_port: PortId,
         frame: FrameId,
     ) {
-        let all_ports = self.bridge_ports(bridge);
-        let policy = FloodForwarding;
-        let egress_ports: Vec<PortId> = policy.egress_ports(&(), ingress_port, &all_ports);
-        for egress_port in egress_ports {
-            if let Some(serializer) = self.world.bridge_egress_serializer(bridge, egress_port) {
-                self.schedule(
-                    now,
-                    Phase::LocalDecision,
-                    Event::Enqueue { serializer, frame },
-                );
-            }
-        }
+        // Route to the device's `on_frame_arrive` hook. Flood
+        // bridges schedule one `Enqueue` per non-ingress egress
+        // port; future devices (Switch) may decide differently.
+        let Some(mut runtime) = self.devices.remove(&bridge) else {
+            return;
+        };
+        runtime.on_frame_arrive(self, bridge, ingress_port, frame);
+        self.devices.insert(bridge, runtime);
     }
 
     fn handle_enqueue(&mut self, now: BitTime, serializer: SerializerId, frame: FrameId) {
         let Some((bridge, port)) = self.bridge_port_of_serializer(serializer) else {
             return;
         };
-        let runtime = self.bridge_state.entry(bridge).or_default();
-        runtime
-            .egress_queues
-            .entry(port)
-            .or_default()
-            .push_back(frame);
-        let busy = runtime.egress_busy.get(&port).copied().unwrap_or(false);
+        let Some(runtime) = self.devices.get_mut(&bridge) else {
+            return;
+        };
+        runtime.enqueue_for_port(port, frame);
+        let busy = runtime.is_busy(port);
         if !busy {
             // Schedule Dequeue at now (LocalDecision); the existing
             // event-key serial tie-break ensures Enqueue logs before
@@ -1636,25 +1834,22 @@ impl Engine {
         let Some((bridge, port)) = self.bridge_port_of_serializer(serializer) else {
             return;
         };
-        // Pop from queue; mark egress busy.
-        let runtime = self.bridge_state.entry(bridge).or_default();
-        let queue = runtime.egress_queues.entry(port).or_default();
-        let popped = queue.pop_front();
-        if popped != Some(frame) {
-            // Stale Dequeue (out-of-order). If we popped something else,
-            // push it back at the front and bail.
-            if let Some(other) = popped {
-                queue.push_front(other);
-            }
+        // Pop from queue (with restore-on-mismatch); mark busy.
+        let Some(runtime) = self.devices.get_mut(&bridge) else {
+            return;
+        };
+        if !runtime.dequeue_for_port(port, frame) {
+            // Stale Dequeue (out-of-order); the runtime restored
+            // the front. Bail without scheduling further.
             return;
         }
-        runtime.egress_busy.insert(port, true);
+        runtime.set_busy(port, true);
 
         // Construct the egress signal from the frame's metadata.
         let Some(meta) = self.frames.get(&frame).copied() else {
             return;
         };
-        let Ok(signal) = Signal::frame(bridge, now, meta.bits, meta.rate) else {
+        let Ok(signal) = Signal::frame(bridge, now, meta.bits(), meta.rate) else {
             return;
         };
         // Record which port the bridge is emitting on, then schedule TxStart.
@@ -1762,7 +1957,7 @@ impl Engine {
 
     /// All ports on `bridge` that have a segment attached, gathered by
     /// inspecting the world's segment list.
-    fn bridge_ports(&self, bridge: NodeId) -> Vec<PortId> {
+    pub(crate) fn bridge_ports(&self, bridge: NodeId) -> Vec<PortId> {
         let mut ports: Vec<PortId> = Vec::new();
         #[allow(
             clippy::cast_possible_truncation,
@@ -1794,9 +1989,12 @@ impl Engine {
 
     /// Reverse-lookup: given a serializer ID assigned to a bridge egress
     /// port at build time, return `(bridge_node, port)`.
-    fn bridge_port_of_serializer(&self, serializer: SerializerId) -> Option<(NodeId, PortId)> {
+    pub(crate) fn bridge_port_of_serializer(
+        &self,
+        serializer: SerializerId,
+    ) -> Option<(NodeId, PortId)> {
         for (node_id, kind) in self.world.nodes() {
-            if !matches!(kind, NodeKind::Bridge(_)) {
+            if !kind.is_l2_relay() {
                 continue;
             }
             for port in self.bridge_ports(node_id) {
@@ -1838,7 +2036,7 @@ fn precompute_hd_pair_reachability(world: &World) -> HashMap<(NodeId, NodeId), H
         let source = NodeId::new(node_idx);
         // Skip bridge nodes as sources: bridges don't originate HD
         // transmissions in round 8a.
-        if matches!(world.node(source), Some(NodeKind::Bridge(_))) {
+        if world.node(source).is_some_and(NodeKind::is_l2_relay) {
             continue;
         }
         let from_source = bfs_hd_delays(world, source);
@@ -1868,7 +2066,7 @@ fn bfs_hd_delays(world: &World, source: NodeId) -> HashMap<NodeId, HdReachabilit
     while let Some(u) = queue.pop_front() {
         // If u is a bridge (and not the source), we don't propagate further.
         // Per A4, the bridge has no internal HD arc.
-        let is_bridge = matches!(world.node(u), Some(NodeKind::Bridge(_)));
+        let is_bridge = world.node(u).is_some_and(NodeKind::is_l2_relay);
         if is_bridge && u != source {
             continue;
         }
@@ -1960,8 +2158,8 @@ fn hd_reachable_in_world(world: &World, source: NodeId, target: NodeId) -> bool 
     if source == target {
         return true;
     }
-    if matches!(world.node(source), Some(NodeKind::Bridge(_)))
-        || matches!(world.node(target), Some(NodeKind::Bridge(_)))
+    if world.node(source).is_some_and(NodeKind::is_l2_relay)
+        || world.node(target).is_some_and(NodeKind::is_l2_relay)
     {
         // Either endpoint sits on a fresh, currently-disconnected bridge port.
         // A7 is impossible to violate.
@@ -1974,7 +2172,7 @@ fn hd_reachable_in_world(world: &World, source: NodeId, target: NodeId) -> bool 
     while let Some(u) = queue.pop_front() {
         // Bridges are HD leaves (axiom A4): we may reach a bridge node but
         // we don't propagate beyond it.
-        if matches!(world.node(u), Some(NodeKind::Bridge(_))) && u != source {
+        if world.node(u).is_some_and(NodeKind::is_l2_relay) && u != source {
             continue;
         }
         for (v, _, _) in hd_neighbors_of(world, u) {
@@ -2072,7 +2270,7 @@ fn precompute_bridge_egress_reach(
             let rate = seg.rate();
             // For each endpoint that's a bridge, compute reach via this port.
             for (bridge_ep, neighbor_ep) in [(a, b), (b, a)] {
-                if matches!(world.node(bridge_ep.node), Some(NodeKind::Bridge(_))) {
+                if world.node(bridge_ep.node).is_some_and(NodeKind::is_l2_relay) {
                     let mut peers: Vec<(NodeId, BitTime, PortId)> = Vec::new();
                     // First hop: the neighbor itself.
                     peers.push((neighbor_ep.node, delay, neighbor_ep.port));
@@ -2084,7 +2282,7 @@ fn precompute_bridge_egress_reach(
                         if *src != neighbor_ep.node || *dst == neighbor_ep.node {
                             continue;
                         }
-                        if matches!(world.node(*dst), Some(NodeKind::Bridge(_))) {
+                        if world.node(*dst).is_some_and(NodeKind::is_l2_relay) {
                             continue;
                         }
                         peers.push((*dst, delay + reach.delay, reach.arrival_port));
@@ -2100,7 +2298,7 @@ fn precompute_bridge_egress_reach(
             let delay = seg.delay();
             let rate = seg.rate();
             for (bridge_ep, peer_ep) in [(a, b), (b, a)] {
-                if matches!(world.node(bridge_ep.node), Some(NodeKind::Bridge(_))) {
+                if world.node(bridge_ep.node).is_some_and(NodeKind::is_l2_relay) {
                     let peers = vec![(peer_ep.node, delay, peer_ep.port)];
                     result.insert(
                         (bridge_ep.node, bridge_ep.port),

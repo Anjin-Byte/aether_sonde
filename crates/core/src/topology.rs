@@ -235,6 +235,27 @@ pub struct BridgeData {
     pub processing_delay: BitTime,
 }
 
+/// Configuration for a learning switch node.
+///
+/// A switch is bridge-like at the topology layer (each port terminates
+/// its own HD collision domain and gets its own egress serializer) but
+/// adds MAC-table learning, manual entries, and aging. Round 4
+/// introduces the framework that makes new device families
+/// single-file additions; `SwitchData` is the demonstration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SwitchData {
+    /// Decode threshold `η_b` (cut-through vs store-and-forward).
+    pub decode_threshold: Bits,
+    /// Processing delay `π_b`.
+    pub processing_delay: BitTime,
+    /// Maximum forwarding-table capacity. `0` means unbounded.
+    pub mac_table_capacity: u32,
+    /// MAC-aging threshold; entries older than this are expired by
+    /// scheduled aging ticks. `BitTime::ZERO` disables aging.
+    pub aging_threshold: BitTime,
+}
+
 /// The kind of a node, with kind-specific configuration data.
 ///
 /// This enum is publicly exhaustive: external consumers exhaustively
@@ -247,8 +268,47 @@ pub enum NodeKind {
     EndStation(EndStationData),
     /// A repeater/hub (PHY-layer interconnection per A3).
     Repeater(RepeaterData),
-    /// A bridge/switch (MAC-sublayer interconnection per A4).
+    /// A bridge: flooding MAC-sublayer interconnection per A4.
     Bridge(BridgeData),
+    /// A learning switch: MAC-sublayer interconnection with a
+    /// forwarding table populated by source-address learning.
+    Switch(SwitchData),
+}
+
+impl NodeKind {
+    /// True iff this node is a layer-2 relay (bridge or switch).
+    ///
+    /// L2 relays terminate one HD collision domain per port and get
+    /// their own egress serializer per port. End stations and
+    /// repeaters do not.
+    ///
+    /// Used by topology resource-map allocation and the engine's
+    /// dispatch sites that special-case relay arrival/egress paths.
+    #[must_use]
+    pub const fn is_l2_relay(&self) -> bool {
+        matches!(self, Self::Bridge(_) | Self::Switch(_))
+    }
+
+    /// Decode parameters `(η_b, π_b)` for L2 relays. Returns `None`
+    /// for end stations and repeaters.
+    ///
+    /// Used by `handle_front_arrive` to compute relay frame
+    /// eligibility timing without pattern-matching on the variant.
+    #[must_use]
+    pub const fn decode_params(&self) -> Option<(Bits, BitTime)> {
+        match self {
+            Self::Bridge(BridgeData {
+                decode_threshold,
+                processing_delay,
+            })
+            | Self::Switch(SwitchData {
+                decode_threshold,
+                processing_delay,
+                ..
+            }) => Some((*decode_threshold, *processing_delay)),
+            Self::EndStation(_) | Self::Repeater(_) => None,
+        }
+    }
 }
 
 // ===========================================================================
@@ -431,6 +491,19 @@ impl TopologyBuilder {
                 decode_threshold,
                 processing_delay,
             }),
+            port_count,
+        });
+        id
+    }
+
+    /// Add a learning switch node.
+    ///
+    /// `mac_table_capacity == 0` means unbounded.
+    /// `aging_threshold == BitTime::ZERO` disables aging.
+    pub fn add_switch(&mut self, port_count: u32, data: SwitchData) -> NodeId {
+        let id = self.next_node_id();
+        self.nodes.push(NodeBuilderRecord {
+            kind: NodeKind::Switch(data),
             port_count,
         });
         id
@@ -658,7 +731,7 @@ impl TopologyBuilder {
         // 4. Bridge egress serializer assignment: 1 per bridge port.
         let mut bridge_egress: HashMap<(NodeId, PortId), SerializerId> = HashMap::new();
         for (node_idx, node) in self.nodes.iter().enumerate() {
-            if !matches!(node.kind, NodeKind::Bridge(_)) {
+            if !node.kind.is_l2_relay() {
                 continue;
             }
             #[allow(clippy::cast_possible_truncation)]
@@ -739,7 +812,7 @@ impl TopologyBuilder {
                 let kind = self
                     .node_kind(ep.node)
                     .expect("validated by add_hd_segment");
-                if matches!(kind, NodeKind::Bridge(_)) {
+                if kind.is_l2_relay() {
                     vertex_of.entry((ep.node, ep.port)).or_insert_with(|| {
                         let v = next_vid;
                         next_vid += 1;
@@ -1005,6 +1078,32 @@ impl World {
         id
     }
 
+    /// Append a switch node and allocate its per-port egress
+    /// serializers. Crate-internal; called from
+    /// `Engine::apply_edit(Edit::AddSwitch)`.
+    pub(crate) fn push_switch(&mut self, port_count: u32, data: SwitchData) -> NodeId {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "node_count fits in u32 for any realistic topology"
+        )]
+        let id = NodeId::new(self.nodes.len() as u32);
+        self.nodes.push(Some(NodeRecord {
+            kind: NodeKind::Switch(data),
+            ports: vec![None; port_count as usize],
+        }));
+        let starting_idx = self.bridge_egress.len() + self.fd_serializers.len() * 2;
+        for p in 0..port_count {
+            let port_id = PortId::new(p);
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "serializer count fits in u32 for any realistic topology"
+            )]
+            let serializer = SerializerId::new((starting_idx + p as usize) as u32);
+            self.bridge_egress.insert((id, port_id), serializer);
+        }
+        id
+    }
+
     // -- Round 10b: segment-add primitives ---------------------------------
     //
     // These extend a built `World` with new segments. The engine's
@@ -1141,7 +1240,7 @@ impl World {
                     .get(ep.node.as_u32() as usize)
                     .and_then(|n| n.as_ref())
                     .map(|n| &n.kind);
-                if matches!(kind, Some(NodeKind::Bridge(_))) {
+                if kind.is_some_and(NodeKind::is_l2_relay) {
                     vertex_of.entry((ep.node, ep.port)).or_insert_with(|| {
                         let v = next_vid;
                         next_vid += 1;
@@ -1238,7 +1337,7 @@ impl World {
             let Some(node) = node_slot.as_ref() else {
                 continue;
             };
-            if !matches!(node.kind, NodeKind::Bridge(_)) {
+            if !node.kind.is_l2_relay() {
                 continue;
             }
             #[allow(clippy::cast_possible_truncation, reason = "node_count fits in u32")]
