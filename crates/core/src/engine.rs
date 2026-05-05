@@ -1,19 +1,11 @@
 //! Discrete-event scheduler.
 //!
 //! The `Engine` consumes a [`World`] and a stream of `TxAttempt`s,
-//! processes events in priority-queue order with phase-batched dispatch
-//! (`report_0.md` Proposition 17), and produces an append-only [`Log`].
+//! processes events in priority-queue order with phase-batched dispatch,
+//! and produces an append-only [`Log`].
 //!
 //! [`World`]: crate::topology::World
 //! [`Log`]: crate::event::Log
-//!
-//! # Round 8a scope
-//!
-//! Implements the **ordinary HD propagation path** end to end:
-//! `TxAttempt` → `TxStart` → `FrontArrive` / `BackArrive` at all peers in
-//! the same HD-connected component → `TxEnd`. Carrier-sense gating,
-//! collision detection, jam, backoff, FD path, and bridge frame relay are
-//! stubbed via exhaustive-match arms; round 8b–8d fill them in.
 //!
 //! # Pair-delay precomputation
 //!
@@ -21,12 +13,11 @@
 //! records pairwise propagation delays between every (source, destination)
 //! pair, including the propagation delay across each HD segment plus the
 //! repeater re-emit delay `δ_h` paid each time the signal traverses an
-//! intermediate repeater. Per axiom A7, each component is a tree, so each
-//! pair has a unique path.
+//! intermediate repeater. Each HD component is a tree, so each pair has
+//! a unique path.
 //!
 //! Bridges are HD leaves: the BFS records the delay to a bridge port but
-//! does not propagate beyond it (per axiom A4, the bridge has no internal
-//! HD arc).
+//! does not propagate beyond it — bridges have no internal HD arc.
 
 use crate::bridge::{FloodForwarding, Forwarding, frame_eligibility_time};
 use crate::event::{Event, EventKey, FrameId, Log, Phase, SignalLostReason};
@@ -248,7 +239,7 @@ impl XorShift64 {
 pub enum EngineError {
     /// `register_frame` was called with `bits == Bits::ZERO`.
     ///
-    /// Per invariant I5, frames must have a strictly positive bit count
+    /// Frames must have a strictly positive bit count
     /// so the resulting signal has a positive duration.
     ZeroBitFrame,
 }
@@ -256,7 +247,7 @@ pub enum EngineError {
 impl core::fmt::Display for EngineError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::ZeroBitFrame => f.write_str("frame must have at least 1 bit (invariant I5)"),
+            Self::ZeroBitFrame => f.write_str("frame must have at least 1 bit"),
         }
     }
 }
@@ -264,26 +255,14 @@ impl core::fmt::Display for EngineError {
 impl core::error::Error for EngineError {}
 
 // ===========================================================================
-// Edit (round 10 / continuity)
+// Edit
 // ===========================================================================
 
 /// A topology mutation applied between dispatch chunks.
 ///
-/// Per `design/continuity.md` §3.a, `Edit` is the closed set of topology
-/// mutations the engine accepts. Adding a variant is a deliberate
-/// breaking change (publicly exhaustive, no `#[non_exhaustive]`).
-///
-/// Round 10a ships working implementations only for the non-segment
-/// variants (`AddEndStation`, `AddRepeater`, `AddBridge`, `SetMacConfig`).
-/// The remaining variants exist on the API surface but return
-/// [`EditError::NotYetImplemented`] until their respective sub-rounds:
-///
-/// - `AddHdSegment`, `AddFdSegment` → round 10b (A7 revalidation +
-///   precomputed-map maintenance).
-/// - `RemoveSegment`, `RemoveNode`, `DisconnectPort` → round 10c (queue
-///   tombstone cancellation + `SignalLost` emission).
-/// - `SetSegmentDelay`, `SetSegmentRate` → round 10d (parameter changes
-///   with in-flight signal semantics per continuity.md §1.b case 1).
+/// `Edit` is the closed set of topology mutations the engine accepts.
+/// Adding a variant is a deliberate breaking change (publicly exhaustive,
+/// no `#[non_exhaustive]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Edit {
     /// Add a new end-station node.
@@ -452,8 +431,8 @@ pub struct Engine {
 
     /// Timestamp of the last event the dispatch loop has processed.
     /// Defaults to `BitTime::ZERO` when no events have been dispatched.
-    /// Per `design/continuity.md` §3.b, this is the simulation time at
-    /// which `apply_edit` records topology mutation events.
+    /// This is the simulation time at which `apply_edit` records
+    /// topology mutation events.
     last_processed_time: BitTime,
 
     mac_configs: HashMap<NodeId, MacConfig>,
@@ -484,14 +463,14 @@ pub struct Engine {
     /// `TxAttempt`, cleared on successful `TxEnd` of the frame's signal.
     pending_frames: HashMap<NodeId, FrameId>,
 
-    /// Round 10c tombstone set: keys of queued events that have been
-    /// canceled by a topology edit (`RemoveSegment`/`RemoveNode`/
-    /// `DisconnectPort`). Per `design/continuity.md` §3.e, the dispatch
-    /// loop checks this set when popping each event: if the event's key
-    /// is present, the engine emits `Event::SignalLost { signal, reason }`
-    /// in the canceled event's log slot (for signal-bearing events) or
-    /// silently skips the entry (for non-signal events), then drops the
-    /// entry from the set. The original handler is never invoked.
+    /// Tombstone set: keys of queued events that have been canceled by
+    /// a topology edit (`RemoveSegment` / `RemoveNode` / `DisconnectPort`).
+    /// The dispatch loop checks this set when popping each event: if the
+    /// event's key is present, the engine emits
+    /// `Event::SignalLost { signal, reason }` in the canceled event's log
+    /// slot (for signal-bearing events) or silently skips the entry (for
+    /// non-signal events), then drops the entry from the set. The original
+    /// handler is never invoked.
     cancelled: HashMap<EventKey, SignalLostReason>,
 
     /// Deterministic RNG for BEB. Seeded at construction.
@@ -580,11 +559,10 @@ impl Engine {
 
     /// Apply a topology edit at the current simulation time.
     ///
-    /// Per `design/continuity.md`, this is the engine's contract for
-    /// continuity: between dispatch chunks, callers may mutate the
-    /// topology. The edit is logged as a topology event at the engine's
-    /// current simulation time (the timestamp of the last-processed event,
-    /// or `BitTime::ZERO` if no events have been dispatched).
+    /// Between dispatch chunks, callers may mutate the topology. The edit
+    /// is logged as a topology event at the engine's current simulation
+    /// time (the timestamp of the last-processed event, or `BitTime::ZERO`
+    /// if no events have been dispatched).
     ///
     /// # Errors
     ///
@@ -692,9 +670,9 @@ impl Engine {
         Ok(())
     }
 
-    // -- Round 10b: segment-add handlers ----------------------------------
+    // -- Segment-add handlers ---------------------------------------------
     //
-    // Validation order (per design/continuity.md §1.b case 6 + §2.a A7):
+    // Validation order:
     //   1. endpoints exist (UnknownNode)
     //   2. ports in range (UnknownPort)
     //   3. distinct nodes (InvalidEdit "endpoints on same node")
@@ -704,8 +682,8 @@ impl Engine {
     //
     // On success, the engine appends the segment, recomputes resource-id
     // maps and the three precomputed reachability maps from scratch
-    // (continuity.md §3.d — incremental updates deferred), then schedules
-    // a `SegmentAdded` event at `last_processed_time` in `LocalDecision`.
+    // (incremental updates deferred), then schedules a `SegmentAdded`
+    // event at `last_processed_time` in `LocalDecision`.
 
     fn validate_segment_endpoints(
         &self,
@@ -815,16 +793,15 @@ impl Engine {
         Ok(())
     }
 
-    // -- Round 10c: removal handlers --------------------------------------
+    // -- Removal handlers --------------------------------------------------
     //
-    // Per `design/continuity.md` §1.b cases 2–4 and §3.e: removals
-    // (a) validate; (b) walk the queue and tombstone affected events;
-    // (c) mutate the World; (d) recompute resource and reachability maps;
-    // (e) schedule the topology mutation event. Per D2 of the round 10c
-    // plan, cancellation is endpoint-local: only `FrontArrive`/`BackArrive`
-    // at the disconnected `(node, port)` are tombstoned for segment/port
-    // removals; for node removal we additionally tombstone any queued
-    // event referencing the removed node.
+    // Removals: (a) validate; (b) walk the queue and tombstone affected
+    // events; (c) mutate the World; (d) recompute resource and reachability
+    // maps; (e) schedule the topology mutation event. Cancellation is
+    // endpoint-local: only `FrontArrive`/`BackArrive` at the disconnected
+    // `(node, port)` are tombstoned for segment/port removals; for node
+    // removal we additionally tombstone any queued event referencing the
+    // removed node.
 
     fn do_disconnect_port(&mut self, node: NodeId, port: PortId) -> Result<(), EditError> {
         if self.world.node(node).is_none() {
@@ -840,10 +817,9 @@ impl Engine {
             });
         };
         // Cancel arrivals at the disconnected endpoint AND at the peer
-        // endpoint of this segment — per continuity.md §1.b case 2,
-        // disconnect makes the receiver miss the front and the
-        // transmitter miss the echo, so both endpoints' queued arrivals
-        // for this segment are lost.
+        // endpoint of this segment — disconnect makes the receiver miss
+        // the front and the transmitter miss the echo, so both endpoints'
+        // queued arrivals for this segment are lost.
         self.cancel_arrivals_on_segment(segment, SignalLostReason::PortDisconnected);
         self.world.disconnect_port(node, port);
         self.world.reassign_resource_maps();
@@ -953,16 +929,15 @@ impl Engine {
         }
     }
 
-    // -- Round 10d: segment parameter-change handlers ---------------------
+    // -- Segment parameter-change handlers --------------------------------
     //
-    // Per `design/continuity.md` §1.b case 1, parameter changes have
-    // "the cable was retroactively replaced behind the signal" semantics:
-    // in-flight signals retain their original arrival schedule (their
-    // events are already scheduled with absolute timestamps), and only
-    // subsequent transmissions on the segment use the new parameter.
-    // No queue cancellation is required (I11 is satisfied by the
-    // existing scheduling discipline). Recomputing the reachability
-    // maps ensures that future `TxStart` events use the new value.
+    // Parameter changes have "the cable was retroactively replaced behind
+    // the signal" semantics: in-flight signals retain their original
+    // arrival schedule (their events are already scheduled with absolute
+    // timestamps), and only subsequent transmissions on the segment use
+    // the new parameter. No queue cancellation is required.
+    // Recomputing the reachability maps ensures that future `TxStart`
+    // events use the new value.
 
     fn do_set_segment_delay(
         &mut self,
@@ -1134,7 +1109,7 @@ impl Engine {
                 // dispatched. Signal-bearing events have their natural log
                 // slot replaced by `Event::SignalLost`; non-signal events
                 // (TxAttempt, Jam*, BackoffExpire, FrameEligible, Enqueue,
-                // Dequeue) are silently dropped. See continuity.md §3.e.
+                // Dequeue) are silently dropped.
                 if let Some(reason) = self.cancelled.remove(&scheduled.key) {
                     if let Some(signal) = signal_of(&scheduled.event) {
                         self.log
@@ -1181,11 +1156,10 @@ impl Engine {
             Event::Dequeue { serializer, frame } => {
                 self.handle_dequeue(now, serializer, frame);
             }
-            // Topology mutation events (round 10 / continuity) are
-            // recorded in the log by the dispatch loop above and have no
-            // further behavior at dispatch time. Their effect on state
-            // happens inside `apply_edit` *before* the event is logged
-            // (see continuity.md §3.b). The dispatch arm exists for
+            // Topology mutation events are recorded in the log by the
+            // dispatch loop above and have no further behavior at dispatch
+            // time. Their effect on state happens inside `apply_edit`
+            // *before* the event is logged. The dispatch arm exists for
             // exhaustiveness; it does not need to do anything.
             Event::SegmentAdded { .. }
             | Event::SegmentRemoved { .. }
@@ -1924,11 +1898,10 @@ fn bfs_hd_delays(world: &World, source: NodeId) -> HashMap<NodeId, HdReachabilit
 ///
 /// Signal-bearing events (`TxStart`, `TxEnd`, `FrontArrive`, `BackArrive`,
 /// `CollisionDetect`) are the ones whose cancellation produces a
-/// `SignalLost` log entry per `design/continuity.md` §3.e. Other events
-/// (`TxAttempt`, `JamStart`/`JamEnd`, `BackoffExpire`, `FrameEligible`,
-/// `Enqueue`, `Dequeue`, topology events) carry no signal payload and
-/// yield `None`, which the dispatch loop treats as "drop silently when
-/// canceled."
+/// `SignalLost` log entry. Other events (`TxAttempt`, `JamStart`/`JamEnd`,
+/// `BackoffExpire`, `FrameEligible`, `Enqueue`, `Dequeue`, topology
+/// events) carry no signal payload and yield `None`, which the dispatch
+/// loop treats as "drop silently when canceled."
 fn signal_of(event: &Event) -> Option<Signal> {
     match *event {
         Event::TxStart { signal, .. }
@@ -3377,7 +3350,7 @@ mod tests {
     // ===================================================================
     //
     // These tests cover the `AddHdSegment` and `AddFdSegment` edit
-    // variants per `design/continuity.md` §1.b case 6 and §2.a A7.
+    // variants and their A7 revalidation.
 
     #[test]
     fn add_hd_segment_appends_segment_and_logs_event() {
@@ -3829,7 +3802,7 @@ mod tests {
     // ===================================================================
     //
     // These tests cover `RemoveSegment`, `RemoveNode`, `DisconnectPort`
-    // per `design/continuity.md` §1.b cases 2–4 and §3.e.
+    // — removal with queue-tombstone cancellation.
 
     fn count_signal_lost(log: &Log, reason: SignalLostReason) -> usize {
         log.iter()
@@ -4233,9 +4206,8 @@ mod tests {
     // Round 10d — segment parameter changes + replay determinism
     // ===================================================================
     //
-    // Closes M4 / v1.0. The first group exercises `SetSegmentDelay` /
-    // `SetSegmentRate` semantics (continuity.md §1.b case 1); the second
-    // group is the §1.c determinism battery.
+    // The first group exercises `SetSegmentDelay` / `SetSegmentRate`
+    // semantics; the second group is the determinism battery.
 
     #[test]
     fn set_segment_delay_changes_future_propagation_timing() {
@@ -4287,7 +4259,7 @@ mod tests {
         // Schedule a TxAttempt; let the propagation start. Mid-flight,
         // change the segment delay. The in-flight `FrontArrive` still
         // fires at the *original* τ — its absolute timestamp is already
-        // in the queue. Per continuity.md §1.b case 1.
+        // in the queue.
         let tau_old = BitTime::from_micros(5);
         let tau_new = BitTime::from_micros(20);
         let (world, s1, s2) = hd_pair(tau_old.as_u64());
@@ -4641,8 +4613,8 @@ mod tests {
 
     #[test]
     fn rapid_edits_yield_coherent_state() {
-        // Per continuity.md §4.c: 100 rapid edits in succession leave a
-        // coherent World and append-only log.
+        // 100 rapid edits in succession leave a coherent World and an
+        // append-only log.
         let world = TopologyBuilder::new().build().unwrap();
         let mut engine = Engine::new(world);
         for _ in 0..100 {

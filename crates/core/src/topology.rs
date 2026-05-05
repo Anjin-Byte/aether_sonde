@@ -1,32 +1,23 @@
 //! Topology types and the `TopologyBuilder` → `World` state transition.
 //!
-//! Per design.md §3.c.7, topology construction is a one-way state
-//! transition: callers populate a [`TopologyBuilder`] (mutable, partial),
-//! then call [`TopologyBuilder::build`] to obtain an immutable [`World`]
-//! or a typed [`BuildError`]. The engine (round 8) consumes only `World`
-//! values; there is no API that lets the engine mutate the topology.
+//! Topology construction is a one-way state transition: callers populate
+//! a [`TopologyBuilder`] (mutable, partial), then call
+//! [`TopologyBuilder::build`] to obtain a [`World`] or a typed
+//! [`BuildError`]. Build-time validation enforces the global axioms:
 //!
-//! # Validated axioms
-//!
-//! `build()` enforces the axioms from design.md §2.a that require a global
-//! view of the topology:
-//!
-//! * **A2** (FD single-transmitter) — eagerly: an FD segment's two
-//!   endpoints must lie on distinct nodes.
-//! * **A4** (bridge axiom — no internal HD arcs) — structurally: bridges
-//!   carry no internal-arc field, plus a check that no segment's two
-//!   endpoints both lie on the same bridge.
-//! * **A7** (unique-path within HD components) — algorithmically: each
+//! * **FD single-transmitter** — eagerly: an FD segment's two endpoints
+//!   must lie on distinct nodes.
+//! * **Bridge axiom** (no internal HD arcs) — structurally: bridges carry
+//!   no internal-arc field, plus a check that no segment's two endpoints
+//!   both lie on the same bridge.
+//! * **Unique-path within HD components** — algorithmically: each
 //!   HD-connected component (with bridge ports treated as terminating
 //!   leaves) must be a tree (`E == V − 1`).
 //! * Per-port single-attachment.
-//! * `delay > 0` per segment (cousin of I5).
+//! * `delay > 0` per segment.
 //!
-//! # Deferred
-//!
-//! Full diameter validation (Theorem 2 / Corollary 8) requires the
-//! engine's slot-time configuration; deferred to round 8. Bridge frame
-//! relay logic (forwarding `Φ_b`) is in round 6.
+//! After construction, the engine may extend or mutate a `World` via
+//! continuity edits ([`crate::engine::Engine::apply_edit`]).
 
 use crate::resource::{CollisionId, SerializerId};
 use crate::signal::NodeId;
@@ -228,9 +219,9 @@ pub struct BridgeData {
 
 /// The kind of a node, with kind-specific configuration data.
 ///
-/// Per design.md §3.c.5, this enum is publicly exhaustive: external
-/// consumers exhaustively match the variants and benefit from compile-time
-/// breakage when new kinds are added.
+/// This enum is publicly exhaustive: external consumers exhaustively
+/// match the variants and benefit from compile-time breakage when new
+/// kinds are added.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NodeKind {
     /// An end station (data source/sink).
@@ -763,13 +754,14 @@ enum SegmentRecord {
 /// A validated topology.
 ///
 /// Constructed exclusively via [`TopologyBuilder::build`]. The engine
-/// owns a `World` and may extend or mutate it via continuity edits
-/// (round 10) — `apply_edit` is the only legal mutation entry point.
+/// owns a `World` and may extend or mutate it via continuity edits;
+/// [`crate::engine::Engine::apply_edit`] is the only legal mutation
+/// entry point.
 ///
 /// Internally, removed nodes and segments leave a `None` slot so that
 /// `NodeId` and `SegmentId` values remain stable references — events
 /// already in the log keep pointing to the correct entities even after
-/// removal (per `design/continuity.md` §2.c I9).
+/// removal.
 #[derive(Debug, Clone)]
 pub struct World {
     nodes: Vec<Option<NodeRecord>>,
@@ -906,13 +898,13 @@ impl World {
         self.bridge_egress.get(&(node, port)).copied()
     }
 
-    // -- Continuity (round 10) mutation primitives --------------------------
+    // -- Continuity mutation primitives -------------------------------------
     //
-    // Per `design/continuity.md` §3.a, topology becomes a time-indexed
-    // history. The engine calls these `pub(crate)` methods from
-    // `apply_edit` to extend a built `World` between dispatch chunks.
-    // External callers cannot mutate a `World` directly; they go through
-    // `Engine::apply_edit`, which validates and logs each edit.
+    // Topology is a time-indexed history. The engine calls these
+    // `pub(crate)` methods from `apply_edit` to extend a built `World`
+    // between dispatch chunks. External callers cannot mutate a `World`
+    // directly; they go through `Engine::apply_edit`, which validates
+    // and logs each edit.
     //
     // Round 10a ships only node-add primitives (no segment mutations,
     // no precomputed-map maintenance). Round 10b adds segment-add;
@@ -1088,10 +1080,9 @@ impl World {
     /// `hd_segment_to_collision`, `fd_serializers`, `bridge_egress`) from
     /// the current node/segment state.
     ///
-    /// Per `design/continuity.md` D1 (round 10b), `CollisionId` and
-    /// `SerializerId` values are not stable across edits — only their
-    /// equivalence relation (segments in the same HD component share a
-    /// `CollisionId`, etc.) is preserved.
+    /// `CollisionId` and `SerializerId` values are not stable across
+    /// edits — only their equivalence relation (segments in the same HD
+    /// component share a `CollisionId`, etc.) is preserved.
     //
     // RATIONALE for the lint allowances: this function mirrors the
     // single-pass build logic in `TopologyBuilder::build` over `World`
@@ -1237,14 +1228,13 @@ impl World {
         }
     }
 
-    // -- Round 10c: removal primitives ------------------------------------
+    // -- Removal primitives ----------------------------------------------
     //
-    // Per `design/continuity.md` §1.b cases 2–4, removals leave `None`
-    // slots in `nodes`/`segments` so that `NodeId`/`SegmentId` values
-    // referenced by already-logged events remain valid (I9). Callers
-    // (the engine's `apply_edit` handler) validate before invoking
-    // these mutators; they do not re-validate. Resource-id maps are
-    // stale after these calls — `reassign_resource_maps` must run.
+    // Removals leave `None` slots in `nodes`/`segments` so that
+    // `NodeId`/`SegmentId` values referenced by already-logged events
+    // remain valid. Callers (the engine's `apply_edit` handler) validate
+    // before invoking these mutators; they do not re-validate. Resource-id
+    // maps are stale after these calls — `reassign_resource_maps` must run.
 
     /// All segment IDs currently connected to any port of `node`.
     /// Returns an empty `Vec` if the node is unknown or removed.
@@ -1304,16 +1294,15 @@ impl World {
         }
     }
 
-    // -- Round 10d: segment parameter change primitives -------------------
+    // -- Segment parameter change primitives -----------------------------
     //
-    // Per `design/continuity.md` §1.b case 1, segment parameter changes
-    // ("the cable was retroactively replaced behind the signal") affect
-    // only future transmissions; in-flight signals retain their original
-    // arrival schedule because their `FrontArrive`/`BackArrive` events
-    // are scheduled with absolute timestamps at `TxStart` time. These
-    // mutators just overwrite the field; the engine's `apply_edit`
-    // handler recomputes reachability maps after the call so subsequent
-    // `TxStart` events use the new value.
+    // Segment parameter changes affect only future transmissions; in-flight
+    // signals retain their original arrival schedule because their
+    // `FrontArrive`/`BackArrive` events are scheduled with absolute
+    // timestamps at `TxStart` time ("the cable was retroactively replaced
+    // behind the signal"). These mutators just overwrite the field; the
+    // engine's `apply_edit` handler recomputes reachability maps after
+    // the call so subsequent `TxStart` events use the new value.
 
     /// Set the propagation delay of `segment`. Silent no-op if `segment`
     /// is out of range or has been removed (the engine's `apply_edit`

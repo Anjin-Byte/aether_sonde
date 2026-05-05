@@ -85,8 +85,8 @@ fn bridge_port_delay_change_mid_relay_preserves_inflight_arrivals() {
     // Build s1 — bridge — s2. Start a transmission. Mid-relay (after
     // s1's TxStart and the bridge's ingress FrontArrive but before the
     // bridge's egress TxStart for the relayed signal), change the
-    // delay on the bridge's egress-side HD segment. Per continuity.md
-    // §1.b case 1, in-flight arrivals retain their original schedule.
+    // delay on the bridge's egress-side HD segment. In-flight arrivals
+    // retain their original schedule.
     let delay_a = BitTime::from_micros(1);
     let delay_b = BitTime::from_micros(1);
     let (world, s1, _s2, _bridge) =

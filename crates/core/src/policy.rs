@@ -9,7 +9,7 @@
 //! Three policy types, each addressing a separate concern:
 //!
 //! * [`BackoffPolicy`] — truncated binary exponential backoff (BEB) per
-//!   IEEE 802.3 §"backoff" and `report_0.md` §"Binary exponential backoff".
+//!   IEEE 802.3 §"backoff".
 //! * [`JamPolicy`] — duration of the collision-enforcement jam.
 //! * [`IfgPolicy`] — minimum inter-frame gap between successive frames on
 //!   the same channel.
@@ -26,8 +26,8 @@ use crate::time::{BitRate, BitTime, Bits};
 
 /// Truncated binary exponential backoff (BEB) policy.
 ///
-/// Per IEEE 802.3 §"backoff" and `report_0.md` Theorem 14, after the `n`-th
-/// collision the station picks a uniform random integer
+/// Per IEEE 802.3 §"backoff", after the `n`-th collision the station picks
+/// a uniform random integer
 /// `R ∈ {0, 1, ..., 2^m_n - 1}` where `m_n = min(n, backoff_limit)`, and
 /// waits `R · slot_time` before retrying. After `attempt_limit` collisions,
 /// the transmission is aborted.
@@ -467,8 +467,7 @@ mod tests {
 
     #[test]
     fn backoff_window_size_for_low_collisions() {
-        // Sharp oracle: report_0 §"Binary exponential backoff" / IEEE 802.3 §"backoff".
-        // window_size(n) = 2^min(n, backoff_limit)
+        // Sharp oracle (IEEE 802.3 §"backoff"): window_size(n) = 2^min(n, backoff_limit).
         let p = BackoffPolicy::IEEE_802_3;
         assert_eq!(p.window_size(1), Some(2));
         assert_eq!(p.window_size(2), Some(4));
@@ -536,14 +535,14 @@ mod tests {
 
     // -- BackoffPolicy: pairwise re-collision probability ----------------------
 
-    /// Per `report_0.md` Theorem 14, the probability that two stations
-    /// independently choosing `R ∈ {0, .., 2^m_n - 1}` pick the same value
-    /// is `2^(-m_n)`. We assert this **deterministically** by counting the
-    /// `R1 == R2` cases in the enumerated `R1 × R2` grid (the diagonal),
-    /// which equals `window_size`. The total grid is `window_size^2`. So
+    /// The probability that two stations independently choosing
+    /// `R ∈ {0, .., 2^m_n - 1}` pick the same value is `2^(-m_n)`.
+    /// We assert this **deterministically** by counting the `R1 == R2`
+    /// cases in the enumerated `R1 × R2` grid (the diagonal), which
+    /// equals `window_size`. The total grid is `window_size^2`, so
     /// `P = window_size / (window_size * window_size) = 1 / window_size = 2^(-m_n)`.
     #[test]
-    fn backoff_pairwise_recollision_probability_matches_theorem_14() {
+    fn backoff_pairwise_recollision_probability_matches_closed_form() {
         let p = BackoffPolicy::IEEE_802_3;
 
         // Exhaustively check small windows: n=1 (window=2), n=2 (window=4),

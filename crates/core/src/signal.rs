@@ -5,28 +5,22 @@
 //! module) and are observed by other nodes as carrier-sense and
 //! collision-detect events.
 //!
-//! # Formal correspondence
+//! # Formal model
 //!
-//! From `design/report_1.md` §"Formal primitives and axioms" Definition 3:
-//!
-//! > A transmission object is `σ = (κ, o, t_0, L_σ, R_σ, ν)`, where `κ` is
-//! > the kind (frame or jam), `o` is the origin port, `t_0` is the start
-//! > time, `L_σ` is transmitted length in bits, `R_σ` is bit rate, and `ν`
-//! > is an optional service label. The transmitted duration is
-//! > `D_σ = L_σ / R_σ`.
+//! A transmission `σ = (κ, o, t_0, L_σ, R_σ)` has a kind `κ` (frame or jam),
+//! origin port `o`, start time `t_0`, transmitted length `L_σ` in bits, and
+//! bit rate `R_σ`. The transmitted duration is `D_σ = L_σ / R_σ`.
 //!
 //! The implementation precomputes the duration via [`Bits::at_rate`] and
 //! stores it; `(L_σ, R_σ)` are not retained on the [`Signal`] itself, since
 //! once a signal is on the wire its rate is a property of the segment, not
-//! the signal. The optional service label `ν` is deferred to a later round
-//! when bridge forwarding lands.
+//! the signal.
 //!
 //! # Half-open intervals
 //!
-//! Per `design/design.md` §2.c invariant I4 and `report_0.md` §"Propagation,
-//! overlap, and local detection", the time interval a signal occupies at
-//! its source is `[t_0, t_0 + D_σ)` — closed on the left, open on the
-//! right. [`Signal::t_end`] returns the exclusive endpoint.
+//! The time interval a signal occupies at its source is `[t_0, t_0 + D_σ)` —
+//! closed on the left, open on the right. [`Signal::t_end`] returns the
+//! exclusive endpoint.
 
 use crate::time::{BitRate, BitTime, Bits};
 
@@ -79,10 +73,10 @@ impl NodeId {
 /// The kind of a propagated signal.
 ///
 /// Frames carry user data; jams are emitted after a collision-detect event
-/// to enforce the collision per IEEE 802.3 §"jam". Per `design.md` §3.c.5,
-/// this enum is publicly exhaustive (no `#[non_exhaustive]`): adding a
-/// variant in a future revision is a deliberate breaking change visible at
-/// every consumer's `match`.
+/// to enforce the collision per IEEE 802.3 §"jam". This enum is publicly
+/// exhaustive (no `#[non_exhaustive]`): adding a variant in a future
+/// revision is a deliberate breaking change visible at every consumer's
+/// `match`.
 ///
 /// # Examples
 ///
@@ -114,17 +108,16 @@ pub enum SignalKind {
 pub enum SignalError {
     /// A signal was constructed from zero bits.
     ///
-    /// Per `design/design.md` §2.c invariant I5, every signal must have a
-    /// strictly positive duration. A zero-bit input would produce a
-    /// zero-duration signal whose occupancy interval is empty everywhere,
-    /// which is a useless degenerate.
+    /// Every signal must have a strictly positive duration. A zero-bit
+    /// input would produce a zero-duration signal whose occupancy interval
+    /// is empty everywhere, which is a useless degenerate.
     ZeroBits,
 }
 
 impl core::fmt::Display for SignalError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::ZeroBits => f.write_str("signal must have at least 1 bit (invariant I5)"),
+            Self::ZeroBits => f.write_str("signal must have at least 1 bit"),
         }
     }
 }
@@ -141,7 +134,7 @@ impl core::error::Error for SignalError {}
 /// [`Signal::source`], [`Signal::t0`], [`Signal::duration`],
 /// [`Signal::kind`], and [`Signal::t_end`] methods. Construction goes
 /// through the typed [`Signal::frame`] and [`Signal::jam`] constructors
-/// which validate invariant I5 (positive duration) at the boundary.
+/// which enforce positive duration at the boundary.
 ///
 /// # Examples
 ///
@@ -290,8 +283,8 @@ impl Signal {
 
     /// The exclusive end time of this signal.
     ///
-    /// Per the half-open interval convention (`design.md` §2.c I4), the
-    /// signal occupies `[t_0, t_end())` at its source. Equivalent to
+    /// Under the half-open interval convention, the signal occupies
+    /// `[t_0, t_end())` at its source. Equivalent to
     /// `self.t0() + self.duration()`.
     ///
     /// # Panics
@@ -349,7 +342,7 @@ mod tests {
 
     #[test]
     fn frame_duration_matches_bits_at_rate_for_every_standard_ethernet_rate() {
-        // Sharp oracle: D_σ = L_σ / R_σ per report_1 §"Formal primitives".
+        // Sharp oracle: D_σ = L_σ / R_σ.
         let bits = Bits::new(1_500 * 8);
         for rate in [
             BitRate::ETHERNET_10M,
@@ -369,7 +362,7 @@ mod tests {
 
     #[test]
     fn frame_duration_matches_ieee_slot_times() {
-        // IEEE slotTime per design/report_1.md tables.
+        // Canonical IEEE 802.3 slotTime values.
         // 10 Mbps half duplex: slotTime = 512 bits = 51.2 µs.
         let slot_at_ten_mbps =
             Signal::frame(SRC, BitTime::ZERO, Bits::new(512), BitRate::ETHERNET_10M).unwrap();
@@ -466,10 +459,9 @@ mod tests {
     #[test]
     fn signal_kind_is_exhaustively_matchable_without_wildcard() {
         // Adding a new SignalKind variant without updating this test
-        // produces a compile error, not a silent fallthrough. This is the
-        // sealed-enum discipline from design.md §3.c.5 applied to
-        // SignalKind: consumers benefit from exhaustive matching breakage
-        // when the type changes.
+        // produces a compile error, not a silent fallthrough — sealed-enum
+        // discipline applied so consumers benefit from exhaustive-match
+        // breakage when the type changes.
         for kind in [SignalKind::Frame, SignalKind::Jam] {
             let label = match kind {
                 SignalKind::Frame => "frame",
@@ -485,7 +477,6 @@ mod tests {
     fn signal_error_displays_a_useful_message() {
         let msg = format!("{}", SignalError::ZeroBits);
         assert!(msg.contains("at least 1 bit"));
-        assert!(msg.contains("I5"));
     }
 
     #[test]

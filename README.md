@@ -19,10 +19,6 @@ cargo build
 cargo test
 ```
 
-## More
-
-Design notes and the math behind the simulator live in `design/`.
-
 ## License
 
 Copyright 2026 Aether Sonde contributors.

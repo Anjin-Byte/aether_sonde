@@ -398,7 +398,7 @@ fn repeater_chain_delay_change_mid_flight_preserves_inflight_arrival() {
     engine.run_until_idle();
 
     // The in-flight FrontArrive at s2 fires at the original total delay,
-    // not the new one (continuity.md §1.b case 1).
+    // not the new one.
     let front_s2 = engine
         .log()
         .iter()

@@ -1,8 +1,8 @@
 //! Endpoint observables: pure read-side projection of an event [`Log`].
 //!
-//! Per `design/design.md` §1, the simulator's correctness contract is
-//! defined in terms of four endpoint observables that callers can query
-//! against the produced event log:
+//! The simulator's correctness contract is defined in terms of four
+//! endpoint observables that callers can query against the produced
+//! event log:
 //!
 //! - [`carrier_sense`] — is the medium busy at this node at time `t`?
 //! - [`collision_detect`] — has this node experienced a collision by time `t`?
@@ -15,11 +15,10 @@
 //!
 //! # Half-open intervals
 //!
-//! Per design.md §2.c invariant I4, time intervals are half-open
-//! `[t_start, t_end)`. The implementations here respect that convention:
-//! a `BackArrive` at time `t` means the signal is *not* present at exactly
-//! `t = back_arrival_time`. See [`carrier_sense`] for the exact counting
-//! rule.
+//! Time intervals are half-open `[t_start, t_end)`. The implementations
+//! here respect that convention: a `BackArrive` at time `t` means the
+//! signal is *not* present at exactly `t = back_arrival_time`. See
+//! [`carrier_sense`] for the exact counting rule.
 
 use crate::event::{Event, Log};
 use crate::signal::{NodeId, Signal};
@@ -31,9 +30,9 @@ use crate::time::BitTime;
 
 /// Whether at least one signal is occupying `node` at time `t`.
 ///
-/// Implements `report_0.md` Theorem 3 (carrier sense): true iff the
-/// node-occupancy union at `node` covers `t`. The node's own transmission
-/// also counts as carrier, matching the IEEE 802.3 carrier-sense semantics.
+/// True iff the node-occupancy union at `node` covers `t`. The node's
+/// own transmission also counts as carrier, matching IEEE 802.3
+/// carrier-sense semantics.
 ///
 /// # Counting rule
 ///
@@ -91,11 +90,11 @@ pub fn carrier_sense(log: &Log, node: NodeId, t: BitTime) -> bool {
 /// event has fired at `node` at a time `≤ t`. Once a collision is
 /// detected, the predicate stays true thereafter.
 ///
-/// Compare to `report_0.md` Theorem 4, which gives a duration-based
-/// definition (true throughout the overlap of own-transmit and foreign-
-/// occupancy intervals). The cumulative form here is the simpler, more
-/// useful default for diagnostics; callers wanting the duration form can
-/// compose [`carrier_sense`] with their own transmit-state tracking.
+/// A duration-based definition (true throughout the overlap of own-
+/// transmit and foreign-occupancy intervals) is also possible. The
+/// cumulative form here is the simpler, more useful default for
+/// diagnostics; callers wanting the duration form can compose
+/// [`carrier_sense`] with their own transmit-state tracking.
 ///
 /// # Examples
 ///

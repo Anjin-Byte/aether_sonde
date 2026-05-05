@@ -3,14 +3,12 @@
 //! All time arithmetic in the simulator passes through these three types.
 //! They collectively guarantee:
 //!
-//! * **No floats.** Per `design/report_0.md` Lemma 18, integer arithmetic
-//!   is exact for rational inputs. The simulator's reproducibility argument
-//!   relies on this; floats would re-introduce precision risk at every
-//!   comparison.
+//! * **No floats.** Integer arithmetic is exact for rational inputs; the
+//!   simulator's reproducibility relies on this and floats would re-introduce
+//!   precision risk at every comparison.
 //! * **Heterogeneous-rate composition.** A single canonical absolute time
 //!   unit (the picosecond) lets durations from different bit-rate segments
-//!   compose. Per the design doc §3.c.1 (v0.2), [`BitTime`] is `u64`
-//!   picoseconds.
+//!   compose. [`BitTime`] is `u64` picoseconds.
 //! * **Explicit rate context.** The conversion from a bit count to a
 //!   duration requires a rate. There is no implicit `From` across that
 //!   boundary; callers always pass the rate in.
@@ -565,8 +563,7 @@ mod tests {
 
     #[test]
     fn bits_at_rate_canonical_ieee_quantities() {
-        // IEEE slot times and frame lengths from design/report_1.md
-        // §"Formal primitives" tables.
+        // Canonical IEEE 802.3 slot times and frame lengths.
         // slotTime = 512 bit-times at 10 Mbps = 51.2 µs.
         assert_eq!(
             Bits::new(512).at_rate(BitRate::ETHERNET_10M),

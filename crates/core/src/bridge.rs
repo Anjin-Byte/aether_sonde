@@ -3,8 +3,8 @@
 //! Three pieces, each independently testable:
 //!
 //! 1. [`frame_eligibility_time`] — pure function computing when an ingress
-//!    frame becomes eligible for egress queueing, per `report_1.md`
-//!    Definition: `t_elig = t_firstbit_in + η_b / R_in + π_b`.
+//!    frame becomes eligible for egress queueing:
+//!    `t_elig = t_firstbit_in + η_b / R_in + π_b`.
 //! 2. [`EgressQueue<T>`] — generic FIFO with optional capacity, used per
 //!    bridge egress port to hold frames waiting for the serializer.
 //! 3. [`Forwarding<F>`] trait + [`FloodForwarding`] default — forwarding
@@ -29,8 +29,7 @@ use std::collections::VecDeque;
 /// The time at which an ingress frame becomes eligible for egress queueing
 /// at a bridge.
 ///
-/// Implements `t_elig = t_firstbit_in + η_b / R_in + π_b` from
-/// `report_1.md` §"Formal primitives and axioms" (bridge definition).
+/// Implements `t_elig = t_firstbit_in + η_b / R_in + π_b`.
 ///
 /// # Cut-through vs. store-and-forward
 ///

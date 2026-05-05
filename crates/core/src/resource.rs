@@ -1,27 +1,25 @@
 //! Resource identifiers, claims, and transmissions.
 //!
-//! Per design.md §3.c.2, the simulator distinguishes two resource kinds:
+//! The simulator distinguishes two resource kinds:
 //!
 //! * [`CollisionId`] — one per HD shared-medium component. Multiple
 //!   simultaneous claims are allowed; the engine's collision handler
 //!   resolves them per CSMA/CD semantics.
 //! * [`SerializerId`] — one per FD directed channel or bridge egress port.
-//!   At most one claim is active at any simulation time per invariant I3.
+//!   At most one claim is active at any simulation time.
 //!
 //! Both are typed identifiers (`u32` newtypes); they carry no claim state.
-//! The active-claim state lives in the engine's event log (round 8); this
-//! module supplies the type vocabulary that the engine operates over.
+//! The active-claim state lives in the engine's event log; this module
+//! supplies the type vocabulary that the engine operates over.
 //!
 //! The generic [`Claim<R>`] and [`Transmission<R>`] types make the resource
 //! kind a compile-time fact: a function that takes a `Claim<SerializerId>`
-//! cannot accidentally receive a `Claim<CollisionId>`. This is the
-//! type-level expression of design.md §3.c.2's "two distinct types, not
-//! one polymorphic Resource."
+//! cannot accidentally receive a `Claim<CollisionId>`. Two distinct types,
+//! not one polymorphic Resource.
 //!
 //! # Half-open intervals
 //!
-//! Per design.md §2.c invariant I4 and `report_0.md` §"Interval-intersection
-//! theorem", time intervals are half-open: a claim spans `[t_start, t_end)`.
+//! Time intervals are half-open: a claim spans `[t_start, t_end)`.
 //! [`Claim::overlaps`] implements the half-open intersection predicate
 //! `max(a_0, b_0) < min(a_1, b_1)` exactly.
 //!
@@ -48,9 +46,7 @@ mod sealed {
 ///
 /// Used where the engine needs to log or display "any resource" without
 /// caring about its kind. Sealed: external crates cannot add new resource
-/// kinds — the resource vocabulary is closed at the crate boundary, per
-/// design.md §3.c.2 ("not one polymorphic Resource") read at the type
-/// system level.
+/// kinds — the resource vocabulary is closed at the crate boundary.
 pub trait ResourceId: sealed::Sealed + Copy + Eq + core::fmt::Debug {
     /// The underlying `u32` identifier.
     fn as_u32(self) -> u32;
@@ -147,8 +143,7 @@ impl ResourceId for SerializerId {
 pub enum ClaimError {
     /// Constructor was called with `t_end <= t_start`.
     ///
-    /// Claims must span a strictly positive interval per the cousin of
-    /// invariant I5 (positive duration).
+    /// Claims must span a strictly positive interval.
     ZeroOrNegativeDuration,
 }
 
@@ -172,8 +167,8 @@ impl core::error::Error for ClaimError {}
 /// `[t_start, t_end)`.
 ///
 /// Generic over the resource kind: `Claim<CollisionId>` and
-/// `Claim<SerializerId>` are distinct types and are not interconvertible.
-/// This expresses design.md §3.c.2's type-level distinction.
+/// `Claim<SerializerId>` are distinct types and are not interconvertible —
+/// the resource-kind distinction is expressed at the type level.
 ///
 /// # Examples
 ///
@@ -245,16 +240,14 @@ impl<R: ResourceId> Claim<R> {
 
     /// Whether two claims overlap on their half-open intervals.
     ///
-    /// Implements the half-open interval-intersection predicate from
-    /// `report_0.md` Theorem 2:
+    /// Implements the half-open interval-intersection predicate
     ///
     /// ```text
     /// [a_0, a_1) ∩ [b_0, b_1) ≠ ∅  ⇔  max(a_0, b_0) < min(a_1, b_1)
     /// ```
     ///
     /// Boundary equality (e.g., `[100, 200)` vs `[200, 300)`) is *not*
-    /// overlap under the half-open convention. This is the load-bearing
-    /// detail for design.md §2.c invariant I4.
+    /// overlap under the half-open convention.
     ///
     /// # Examples
     ///
@@ -326,10 +319,10 @@ impl core::error::Error for TransmissionError {}
 
 /// A signal paired with the claim that authorizes it on a resource.
 ///
-/// Per design.md §2.c invariant I6, every active transmission has exactly
-/// one claim of exactly one kind. The generic parameter `R` fixes the
-/// resource kind at the type level, so `Transmission<CollisionId>` and
-/// `Transmission<SerializerId>` cannot be confused.
+/// Every active transmission has exactly one claim of exactly one kind.
+/// The generic parameter `R` fixes the resource kind at the type level,
+/// so `Transmission<CollisionId>` and `Transmission<SerializerId>` cannot
+/// be confused.
 ///
 /// # Examples
 ///

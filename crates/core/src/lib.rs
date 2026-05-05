@@ -4,22 +4,16 @@
 //! on graphs, generalized to mixed half-duplex shared media, full-duplex
 //! point-to-point links, repeater/hub components, and bridge nodes.
 //!
-//! See `design/design.md` at the workspace root for the design contract.
-//! The mathematics this crate implements lives in `design/report_0.md` and
-//! `design/report_1.md`.
-//!
 //! # Scope
 //!
 //! Phase 1 of the workspace plan: a single pure-core crate. No I/O, no
 //! clocks, no randomness sourced from entropy, no parallelism. The simulator
-//! is the reference implementation; per the codex's
-//! `Reference Implementation as Oracle` principle, optimized paths land in
-//! sibling crates and are validated against this one.
+//! is its own reference implementation: optimized paths land in sibling
+//! crates and are validated against this one.
 //!
 //! # Module structure
 //!
-//! Modules are introduced in dependency order, leaves first. The full
-//! decomposition is documented in `design/design.md` §3.b.
+//! Modules are introduced in dependency order, leaves first.
 //!
 //! - [`time`] — canonical time, bit count, and bit rate types.
 //! - [`signal`] — propagation primitive: signals, signal kinds, source IDs.

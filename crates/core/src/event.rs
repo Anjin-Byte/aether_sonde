@@ -1,22 +1,23 @@
 //! Event types, phase ordering, event keys, and the append-only event log.
 //!
-//! Per design.md §3.c.5–9, this module supplies:
+//! This module supplies:
 //!
-//! * [`Event`] — sealed enum of 12 variants, one per event class in
-//!   `report_1.md` §"Event-driven semantics" / `report_0.md` Definition 8.
-//!   Publicly exhaustive: adding a variant is a deliberate breaking change.
-//! * [`Phase`] — four-phase priority ordering per `report_0.md`
-//!   Proposition 17. Variant declaration order encodes priority.
+//! * [`Event`] — sealed enum of event classes covering transmission,
+//!   propagation, collision, jam, backoff, bridge relay, and topology
+//!   mutation. Publicly exhaustive: adding a variant is a deliberate
+//!   breaking change.
+//! * [`Phase`] — four-phase priority ordering. Variant declaration order
+//!   encodes priority.
 //! * [`EventKey`] — `(time, phase, serial_id)` triple ordered
 //!   lexicographically; the priority-queue key.
 //! * [`Log`] — append-only event history. The only mutation method is
 //!   `pub(crate)`; external consumers receive `&Log` and read but do not
-//!   mutate (invariant I7).
-//! * [`FrameId`] — typed handle into the engine's frame table (round 8).
+//!   mutate.
+//! * [`FrameId`] — typed handle into the engine's frame table.
 //!
-//! The engine (round 8) is the only writer of [`Log`] and the only
-//! generator of `serial_id`s. This module supplies the type vocabulary;
-//! it does not schedule or dispatch events.
+//! The engine is the only writer of [`Log`] and the only generator of
+//! `serial_id`s. This module supplies the type vocabulary; it does not
+//! schedule or dispatch events.
 
 use crate::resource::SerializerId;
 use crate::signal::{NodeId, Signal};
@@ -63,8 +64,7 @@ impl FrameId {
 
 /// The phase of an event within a single timestamp.
 ///
-/// Per `report_0.md` Proposition 17 ("correct event phases"), events at
-/// the same `time` must process in a fixed order to give exact
+/// Events at the same `time` must process in a fixed order to give exact
 /// simultaneous-event semantics. Variant declaration order encodes that
 /// priority: `Release < Assertion < Reaction < LocalDecision`.
 ///
@@ -107,11 +107,9 @@ pub enum Phase {
 
 /// Discrete event in the simulation.
 ///
-/// The 12 variants below correspond one-to-one with `report_1.md`
-/// §"Event-driven semantics" / `report_0.md` Definition 8. Per design.md
-/// §3.c.5, this enum is **publicly exhaustive** (no `#[non_exhaustive]`):
-/// adding a 13th variant is a deliberate breaking change visible at every
-/// consumer's `match` arm.
+/// This enum is **publicly exhaustive** (no `#[non_exhaustive]`): adding
+/// a variant is a deliberate breaking change visible at every consumer's
+/// `match` arm.
 ///
 /// # Examples
 ///
@@ -217,11 +215,11 @@ pub enum Event {
         attempt: u32,
     },
 
-    // -- Topology mutation events (round 10 / continuity) -------------------
+    // -- Topology mutation events ------------------------------------------
     //
-    // Per `design/continuity.md` §3.c, topology mutations are first-class
-    // events in the log. They fire in `Phase::LocalDecision` at the time
-    // of the edit. They do not affect any of the four observable queries.
+    // Topology mutations are first-class events in the log. They fire in
+    // `Phase::LocalDecision` at the time of the edit. They do not affect
+    // any of the four observable queries.
     /// A new segment was added to the topology.
     SegmentAdded {
         /// The new segment's ID.
@@ -247,10 +245,9 @@ pub enum Event {
         /// The removed node's ID.
         node: NodeId,
     },
-    /// A segment's propagation delay was changed. Per
-    /// `design/continuity.md` §1.b case 1, in-flight signals retain their
-    /// original arrival schedule; the new delay applies to subsequent
-    /// transmissions on the segment.
+    /// A segment's propagation delay was changed. In-flight signals
+    /// retain their original arrival schedule; the new delay applies
+    /// to subsequent transmissions on the segment.
     SegmentDelayChanged {
         /// The segment whose delay changed.
         segment: SegmentId,
@@ -289,10 +286,9 @@ pub enum Event {
         segment: SegmentId,
     },
 
-    /// A signal in flight was lost due to a topology mutation. Per
-    /// `design/continuity.md` §1.b cases 2–4, disconnects, removals, and
-    /// node-deletions cancel queued events for in-flight signals; this
-    /// event records each cancellation.
+    /// A signal in flight was lost due to a topology mutation.
+    /// Disconnects, removals, and node-deletions cancel queued events
+    /// for in-flight signals; this event records each cancellation.
     SignalLost {
         /// The signal whose remaining propagation was canceled.
         signal: Signal,
@@ -321,7 +317,7 @@ impl Event {
     /// The [`Phase`] this event belongs to.
     ///
     /// Used by the engine's priority queue to order events at the same
-    /// timestamp per `report_0.md` Proposition 17.
+    /// timestamp deterministically.
     ///
     /// # Examples
     ///
@@ -368,8 +364,8 @@ impl Event {
 /// Priority-queue key for an event: `(time, phase, serial_id)`.
 ///
 /// Derived ordering follows field declaration order
-/// (`time` → `phase` → `serial_id`), giving the lexicographic order
-/// required by `report_0.md` Proposition 17.
+/// (`time` → `phase` → `serial_id`), giving the lexicographic order the
+/// dispatch loop requires.
 ///
 /// `serial_id` is a monotonically increasing counter the engine maintains;
 /// it tie-breaks within the same `(time, phase)` deterministically.
@@ -409,10 +405,10 @@ pub struct LoggedEvent {
 
 /// Append-only event history.
 ///
-/// Per design.md §2.c invariant I7, the log is append-only during a run.
-/// External consumers receive `&Log` and may iterate, count, and inspect
-/// entries — but the only mutation method (`push`) is `pub(crate)`, so
-/// only the engine (in this same crate) can write.
+/// The log is append-only during a run. External consumers receive
+/// `&Log` and may iterate, count, and inspect entries — but the only
+/// mutation method (`push`) is `pub(crate)`, so only the engine (in
+/// this same crate) can write.
 ///
 /// # Examples
 ///
@@ -622,8 +618,7 @@ mod tests {
             .phase(),
             Phase::LocalDecision,
         );
-        // Topology mutation events (round 10 / continuity) all share
-        // `Phase::LocalDecision` per continuity.md §3.c.
+        // Topology mutation events all share `Phase::LocalDecision`.
         assert_eq!(
             Event::SegmentAdded {
                 segment: seg,
@@ -684,12 +679,8 @@ mod tests {
     #[test]
     fn event_is_exhaustively_matchable_without_wildcard() {
         // Adding a new Event variant without updating this match arm
-        // would produce a compile error. This is the sealed-enum
-        // discipline from design.md §3.c.5.
-        //
-        // Round 7 introduced 12 variants. Round 10a (continuity) added 9
-        // more (8 topology events + 1 SignalLost). Subsequent additions
-        // are deliberate breaking changes.
+        // would produce a compile error — sealed-enum discipline.
+        // Subsequent additions are deliberate breaking changes.
         let n = NodeId::new(0);
         let p = PortId::new(0);
         let s = signal();
