@@ -2,10 +2,7 @@
 // JSON-stringified log is character-identical.
 
 import { describe, expect, it } from "vitest";
-import {
-  TypedEngine,
-  TypedTopologyBuilder,
-} from "../src/index.js";
+import { TypedEngine, TypedTopologyBuilder } from "../src/index.js";
 
 function runHd1(seed: bigint): string {
   using builder = TypedTopologyBuilder.create();

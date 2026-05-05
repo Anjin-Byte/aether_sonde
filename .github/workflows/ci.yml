@@ -112,6 +112,9 @@ jobs:
       - name: npm install
         run: npm install --prefix packages/ts-sim
 
+      - name: prettier --check
+        run: npm run format:check --prefix packages/ts-sim
+
       - name: tsc --noEmit
         run: npm run typecheck --prefix packages/ts-sim
 

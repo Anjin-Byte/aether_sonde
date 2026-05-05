@@ -63,7 +63,14 @@ export class TypedTopologyBuilder implements Disposable {
     bPort: number,
   ): number {
     try {
-      return this.inner.addHdSegment(rateBps, delayPs, aNode, aPort, bNode, bPort);
+      return this.inner.addHdSegment(
+        rateBps,
+        delayPs,
+        aNode,
+        aPort,
+        bNode,
+        bPort,
+      );
     } catch (e: unknown) {
       throw asBuildError(e);
     }
@@ -79,7 +86,14 @@ export class TypedTopologyBuilder implements Disposable {
     bPort: number,
   ): number {
     try {
-      return this.inner.addFdSegment(rateBps, delayPs, aNode, aPort, bNode, bPort);
+      return this.inner.addFdSegment(
+        rateBps,
+        delayPs,
+        aNode,
+        aPort,
+        bNode,
+        bPort,
+      );
     } catch (e: unknown) {
       throw asBuildError(e);
     }

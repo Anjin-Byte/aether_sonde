@@ -11,10 +11,7 @@
 
 export { init } from "aether-sonde-wasm";
 
-export {
-  TypedTopologyBuilder,
-  TypedWorld,
-} from "./builder.js";
+export { TypedTopologyBuilder, TypedWorld } from "./builder.js";
 
 export { TypedEngine } from "./engine.js";
 

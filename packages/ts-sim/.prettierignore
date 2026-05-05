@@ -1,0 +1,5 @@
+dist/
+node_modules/
+
+# wasm-pack output is generated; not ours to format.
+../../crates/wasm/pkg/

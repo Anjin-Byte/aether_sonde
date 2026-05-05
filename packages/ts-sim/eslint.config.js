@@ -1,8 +1,10 @@
 // ESLint flat config for `@aether-sonde/sim`.
 //
 // Layered on top of strict TypeScript: tsc owns soundness, ESLint owns
-// stylistic and best-practice rules that the type system can't catch
-// (consistent type imports, unused vars, prefer-const, etc.).
+// correctness rules the type system can't catch (consistent type
+// imports, unused vars, etc.), and Prettier owns formatting. The
+// `eslint-config-prettier` block at the end disables ESLint rules that
+// would conflict with Prettier's choices.
 //
 // Type-aware rules (no-floating-promises, no-misused-promises) are
 // deferred until the API matures — adding them requires a tsconfig
@@ -10,6 +12,7 @@
 // package root.
 
 import eslint from "@eslint/js";
+import prettierConfig from "eslint-config-prettier";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
@@ -36,4 +39,6 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  // MUST be last: turns off ESLint rules that conflict with Prettier.
+  prettierConfig,
 );

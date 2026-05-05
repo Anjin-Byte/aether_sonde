@@ -10,9 +10,7 @@ import {
 } from "aether-sonde-wasm";
 import { type LoggedEvent, type LogSnapshot } from "./types.js";
 
-function asSnapshot(
-  log: LogSnapshot | readonly LoggedEvent[],
-): LogSnapshot {
+function asSnapshot(log: LogSnapshot | readonly LoggedEvent[]): LogSnapshot {
   if (Array.isArray(log)) {
     return { entries: log };
   }

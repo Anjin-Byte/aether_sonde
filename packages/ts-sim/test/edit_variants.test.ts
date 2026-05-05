@@ -44,8 +44,13 @@ describe("AddEndStation", () => {
     using builder = TypedTopologyBuilder.create();
     const world = builder.build();
     using engine = TypedEngine.create(world, 0n);
-    const events = applyAndDrain(engine, { type: "AddEndStation", port_count: 1 });
-    expect(events.some((e) => e.type === "NodeAdded" && e.node === 0)).toBe(true);
+    const events = applyAndDrain(engine, {
+      type: "AddEndStation",
+      port_count: 1,
+    });
+    expect(events.some((e) => e.type === "NodeAdded" && e.node === 0)).toBe(
+      true,
+    );
     expect(engine.nodeCount()).toBe(1);
   });
 });
@@ -134,9 +139,7 @@ describe("RemoveSegment", () => {
     const { engine, segment } = hdPair();
     const events = applyAndDrain(engine, { type: "RemoveSegment", segment });
     expect(
-      events.some(
-        (e) => e.type === "SegmentRemoved" && e.segment === segment,
-      ),
+      events.some((e) => e.type === "SegmentRemoved" && e.segment === segment),
     ).toBe(true);
   });
 });
