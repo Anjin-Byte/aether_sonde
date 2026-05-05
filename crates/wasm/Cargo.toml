@@ -1,0 +1,36 @@
+[package]
+name = "aether-sonde-wasm"
+description = "WebAssembly bindings for the Aether Sonde simulation core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# The pure-logic core. We enable its `serde` feature to marshal types
+# across the WASM boundary via serde-wasm-bindgen.
+aether-sonde = { path = "../core", features = ["serde"] }
+
+# wasm-bindgen ships the JS glue and `.d.ts` generation; pinned to a
+# minor that matches the installed wasm-pack toolchain.
+wasm-bindgen = "0.2"
+
+# Bridges serde Serialize/Deserialize to/from JsValue. Idiomatic
+# control-plane marshaling per the codex's Serialization Choice note.
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+[dev-dependencies]
+# `wasm-pack test --node` driver. Required for wasm-bindgen-test.
+wasm-bindgen-test = "0.3"
+# JS-side object construction in boundary tests.
+js-sys = "0.3"

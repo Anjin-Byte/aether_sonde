@@ -34,6 +34,11 @@ use std::collections::{HashMap, VecDeque};
 /// Ports are 0-indexed within each node. A node with `port_count == n` has
 /// ports `PortId(0)` through `PortId(n - 1)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct PortId(u32);
 
 impl PortId {
@@ -56,6 +61,11 @@ impl PortId {
 /// to determine which kind a given `SegmentId` resolves to, or query
 /// [`World::hd_segment`] / [`World::fd_segment`] directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct SegmentId(u32);
 
 impl SegmentId {
@@ -78,6 +88,7 @@ impl SegmentId {
 
 /// A reference to a specific port on a specific node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Endpoint {
     /// The node this endpoint is on.
     pub node: NodeId,
@@ -99,6 +110,7 @@ impl Endpoint {
 /// and `b`. `Direction::AtoB` selects the serializer that transmits from
 /// `a` toward `b`; `Direction::BtoA` selects the reverse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Direction {
     /// From the first endpoint (`a`) to the second (`b`).
     AtoB,
@@ -116,6 +128,7 @@ pub enum Direction {
 /// repeater interconnection. Per axiom A7, each HD-connected component
 /// must be a tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct HdSegment {
     rate: BitRate,
     delay: BitTime,
@@ -147,6 +160,7 @@ impl HdSegment {
 /// Per axiom A2, an FD segment's two endpoints must lie on distinct nodes;
 /// each direction has a single legal injector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FdSegment {
     rate: BitRate,
     delay: BitTime,
@@ -175,6 +189,7 @@ impl FdSegment {
 
 /// Discriminator for [`SegmentId`] kind queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SegmentKind {
     /// The segment is an [`HdSegment`].
     Hd,
@@ -192,10 +207,12 @@ pub enum SegmentKind {
 /// rather than storing them on this struct, so the same topology can be
 /// reused with different policy configurations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EndStationData;
 
 /// Configuration for a repeater (hub) node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RepeaterData {
     /// Re-emit delay `δ_h` per axiom A3.
     pub delta_h: BitTime,
@@ -207,6 +224,7 @@ pub struct RepeaterData {
 /// validation and event-time computation. The forwarding relation `Φ_b`
 /// is the subject of round 6.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BridgeData {
     /// Decode threshold `η_b` — the number of bits that must arrive before
     /// the frame is eligible for forwarding (e.g., the full frame for
@@ -223,6 +241,7 @@ pub struct BridgeData {
 /// match the variants and benefit from compile-time breakage when new
 /// kinds are added.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum NodeKind {
     /// An end station (data source/sink).
     EndStation(EndStationData),
@@ -238,6 +257,7 @@ pub enum NodeKind {
 
 /// Errors returned by [`TopologyBuilder`] methods.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum BuildError {
     /// An endpoint references a non-existent node.
@@ -277,8 +297,11 @@ pub enum BuildError {
         /// A representative node from the offending HD component.
         component_root: NodeId,
     },
-    /// A catch-all for round-5 validation gaps.
-    InvalidConfig(&'static str),
+    /// A catch-all for validation gaps not covered by the other variants.
+    InvalidConfig {
+        /// Human-readable reason.
+        reason: &'static str,
+    },
 }
 
 impl core::fmt::Display for BuildError {
@@ -310,7 +333,9 @@ impl core::fmt::Display for BuildError {
                     "axiom A7 violated: HD component containing {component_root:?} is not a tree",
                 )
             }
-            Self::InvalidConfig(msg) => write!(f, "invalid topology configuration: {msg}"),
+            Self::InvalidConfig { reason } => {
+                write!(f, "invalid topology configuration: {reason}")
+            }
         }
     }
 }

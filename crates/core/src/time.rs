@@ -79,6 +79,11 @@ const fn nz(n: u64) -> NonZeroU64 {
 /// assert!(BitTime::from_nanos(1) < BitTime::from_micros(1));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct BitTime(u64);
 
 impl BitTime {
@@ -258,6 +263,11 @@ impl SubAssign for BitTime {
 /// assert_eq!(Bits::new(1).at_rate(BitRate::ETHERNET_1G), BitTime::from_nanos(1));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct Bits(u64);
 
 impl Bits {
@@ -392,6 +402,11 @@ impl SubAssign for Bits {
 /// assert_eq!(BitRate::ETHERNET_10G.as_bps(), 10_000_000_000);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct BitRate(NonZeroU64);
 
 impl BitRate {

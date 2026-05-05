@@ -69,6 +69,11 @@ pub trait ResourceId: sealed::Sealed + Copy + Eq + core::fmt::Debug {
 /// assert_eq!(CollisionId::new(3).as_u32(), 3);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct CollisionId(u32);
 
 impl CollisionId {
@@ -110,6 +115,11 @@ impl ResourceId for CollisionId {
 /// assert_eq!(SerializerId::new(7).as_u32(), 7);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct SerializerId(u32);
 
 impl SerializerId {
@@ -139,6 +149,7 @@ impl ResourceId for SerializerId {
 
 /// Errors returned by fallible [`Claim`] constructors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum ClaimError {
     /// Constructor was called with `t_end <= t_start`.
@@ -285,6 +296,7 @@ const fn min_bittime(a: BitTime, b: BitTime) -> BitTime {
 
 /// Errors returned by fallible [`Transmission`] constructors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum TransmissionError {
     /// Signal duration and claim duration disagreed.

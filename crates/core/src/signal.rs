@@ -50,6 +50,11 @@ use crate::time::{BitRate, BitTime, Bits};
 /// assert_eq!(n.as_u32(), 7);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct NodeId(u32);
 
 impl NodeId {
@@ -87,6 +92,7 @@ impl NodeId {
 /// assert_ne!(kind, SignalKind::Jam);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SignalKind {
     /// A user-data frame.
     Frame,
@@ -104,6 +110,7 @@ pub enum SignalKind {
 /// not a breaking change for consumers — error variants commonly accumulate
 /// over time as new validation rules are codified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum SignalError {
     /// A signal was constructed from zero bits.
@@ -155,6 +162,7 @@ impl core::error::Error for SignalError {}
 /// assert_eq!(signal.t_end(), BitTime::from_nanos(51_200));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Signal {
     source: NodeId,
     t0: BitTime,

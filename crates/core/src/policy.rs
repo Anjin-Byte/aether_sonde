@@ -47,6 +47,7 @@ use crate::time::{BitRate, BitTime, Bits};
 /// assert_eq!(p.window_size(16), None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BackoffPolicy {
     attempt_limit: u32,
     backoff_limit: u32,
@@ -222,6 +223,7 @@ impl BackoffPolicy {
 
 /// Errors returned by [`BackoffPolicy::new`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum BackoffPolicyError {
     /// `attempt_limit == 0`.
@@ -252,6 +254,7 @@ impl core::error::Error for BackoffPolicyError {}
 /// The struct fields record the observed attempt count and the configured
 /// limit so the engine (round 8) can log the abort condition meaningfully.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BackoffAborted {
     /// The number of collisions seen so far.
     pub attempts: u32,
@@ -295,6 +298,7 @@ impl core::error::Error for BackoffAborted {}
 /// );
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct JamPolicy {
     bits: Bits,
 }
@@ -359,6 +363,7 @@ impl JamPolicy {
 
 /// Errors returned by [`JamPolicy::new`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum JamPolicyError {
     /// `bits == Bits::ZERO`. A zero-bit jam cannot enforce a collision.
@@ -399,6 +404,7 @@ impl core::error::Error for JamPolicyError {}
 /// );
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IfgPolicy {
     bits: Bits,
 }

@@ -9,8 +9,9 @@ frames across separate links.
 ## Status
 
 Early. The core handles half-duplex, full-duplex, and bridged topologies.
-The Rust crate is the engine; a WebAssembly bridge for use from TypeScript
-is the planned next step.
+A WebAssembly binding crate (`aether-sonde-wasm`) and a TypeScript
+adapter package (`@aether-sonde/sim`) expose the simulator to
+JavaScript and TypeScript consumers.
 
 ## Build and test
 
@@ -18,6 +19,9 @@ is the planned next step.
 cargo build
 cargo test
 ```
+
+For the WASM bindings, see [`crates/wasm/README.md`](crates/wasm/README.md).
+For the typed TypeScript API, see [`packages/ts-sim/README.md`](packages/ts-sim/README.md).
 
 ## License
 

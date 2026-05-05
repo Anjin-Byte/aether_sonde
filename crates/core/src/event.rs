@@ -42,6 +42,11 @@ use crate::topology::{PortId, SegmentId, SegmentKind};
 /// assert_eq!(FrameId::new(7).as_u32(), 7);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct FrameId(u32);
 
 impl FrameId {
@@ -88,6 +93,7 @@ impl FrameId {
 /// assert!(Phase::Reaction < Phase::LocalDecision);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Phase {
     /// Things ending at this timestamp: `BackArrive`, `TxEnd`, `JamEnd`.
     Release,
@@ -124,6 +130,11 @@ pub enum Phase {
 /// assert_eq!(attempt.phase(), Phase::LocalDecision);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(tag = "type")
+)]
 pub enum Event {
     /// MAC requests permission to transmit a frame.
     TxAttempt {
@@ -304,6 +315,7 @@ pub enum Event {
 /// endpoint ports is disconnected, or a node referenced by the signal's
 /// scheduled events is removed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SignalLostReason {
     /// The segment carrying the signal was removed.
     SegmentRemoved,
@@ -381,6 +393,7 @@ impl Event {
 /// assert!(early < late);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EventKey {
     /// The event's timestamp.
     pub time: BitTime,
@@ -396,6 +409,7 @@ pub struct EventKey {
 
 /// A single entry in the [`Log`]: an event paired with its scheduling key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LoggedEvent {
     /// The key under which the event was scheduled.
     pub key: EventKey,
@@ -419,6 +433,7 @@ pub struct LoggedEvent {
 /// assert_eq!(log.len(), 0);
 /// ```
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Log {
     entries: Vec<LoggedEvent>,
 }

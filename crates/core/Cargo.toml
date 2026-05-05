@@ -12,8 +12,18 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+default = []
+# Opt-in `serde` derives on every public type. Used by binding crates
+# (e.g., `aether-sonde-wasm`) that marshal core types across an FFI or
+# WASM boundary. With `default = []`, downstream Rust consumers without
+# this feature pay zero cost — no `serde` dep, no derive bloat.
+serde = ["dep:serde"]
+
 [dependencies]
-# Pure core. No runtime dependencies.
+# Optional serde for boundary marshaling. Not enabled by default. Uses
+# default features (std) — internally-tagged enum derives require it.
+serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 # Property-based testing for invariants and high-input-space differential

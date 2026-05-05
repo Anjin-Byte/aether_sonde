@@ -10,6 +10,14 @@ design/
 /target
 **/*.rs.bk
 
+# wasm-pack output (regenerated from Rust source on every build)
+crates/wasm/pkg/
+
+# Node / TypeScript build artifacts
+node_modules/
+packages/*/dist/
+packages/*/.vitest-cache/
+
 # Cargo lockfile (uncomment if this becomes a library workspace; for now
 # we keep Cargo.lock so binary-style reproducible builds work)
 # Cargo.lock

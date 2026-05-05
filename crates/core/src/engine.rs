@@ -49,6 +49,7 @@ use std::collections::{BinaryHeap, HashMap, VecDeque};
 /// assert_eq!(m.backoff.attempt_limit(), 16);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MacConfig {
     /// BEB policy.
     pub backoff: BackoffPolicy,
@@ -97,6 +98,7 @@ struct FrameMetadata {
 /// and `BackingOff`. The state is updated by event handlers and consulted
 /// for carrier-sense gating, collision detection, and backoff retry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum NodeRuntimeState {
     /// The node is not currently transmitting and not in backoff.
     Idle,
@@ -235,6 +237,7 @@ impl XorShift64 {
 
 /// Errors returned by [`Engine::register_frame`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum EngineError {
     /// `register_frame` was called with `bits == Bits::ZERO`.
@@ -264,6 +267,11 @@ impl core::error::Error for EngineError {}
 /// Adding a variant is a deliberate breaking change (publicly exhaustive,
 /// no `#[non_exhaustive]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(tag = "type")
+)]
 pub enum Edit {
     /// Add a new end-station node.
     AddEndStation {
@@ -352,6 +360,7 @@ pub enum Edit {
 
 /// Errors returned by [`Engine::apply_edit`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(tag = "kind"))]
 #[non_exhaustive]
 pub enum EditError {
     /// The edit kind is reserved for a future sub-round and not yet
