@@ -115,5 +115,8 @@ jobs:
       - name: tsc --noEmit
         run: npm run typecheck --prefix packages/ts-sim
 
+      - name: eslint
+        run: npm run lint --prefix packages/ts-sim
+
       - name: vitest
         run: npm test --prefix packages/ts-sim

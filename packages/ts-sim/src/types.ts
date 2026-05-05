@@ -206,7 +206,7 @@ export type BuildError =
   | { kind: "UniquePathViolated"; component_root: number }
   | { kind: "InvalidConfig"; reason: string };
 
-export type EngineError = { kind: "ZeroBitFrame" };
+export interface EngineError { kind: "ZeroBitFrame" }
 
 // ---------------------------------------------------------------------------
 // Error wrapper classes — preserve `instanceof` and stack traces
