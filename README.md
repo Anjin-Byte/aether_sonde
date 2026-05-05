@@ -1,7 +1,6 @@
 # Aether Sonde
 
-[![CI](https://github.com/Anjin-Byte/aether-sonde/actions/workflows/ci.yml/badge.svg)](https://github.com/Anjin-Byte/aether-sonde/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://anjin-byte.github.io/aether-sonde/aether_sonde/)
+[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://anjin-byte.github.io/aether_sonde/aether_sonde/index.html)
 
 A simulator for Ethernet networks. It models how signals travel between
 stations, how collisions form on shared wires, and how bridges relay
